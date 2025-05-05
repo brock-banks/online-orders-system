@@ -1,0 +1,168 @@
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 1234
+    [address] => hell
+)
+Array
+(
+    [order_id] => 1
+    [details] => test1
+    [phone] => 1234
+    [address] => hell's gate
+)
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 123
+    [address] => hell2
+)
+Validated Data: Order ID: 1, Details: test, Phone: 123, Address: hell2
+Array
+(
+    [order_id] => 6
+    [details] => 628 x3
+    [phone] => +96878450412
+    [address] => know where
+)
+Validated Data: Order ID: 6, Details: 628 x3, Phone: +96878450412, Address: know where
+Array
+(
+    [order_id] => 2
+    [details] => 628
+    [phone] => 12345
+    [address] => knowwhere x
+)
+Validated Data: Order ID: 2, Details: 628, Phone: 12345, Address: knowwhere x
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 123
+    [address] => valhallah
+)
+Validated Data: Order ID: 1, Details: test, Phone: 123, Address: valhallah
+Array
+(
+    [order_id] => 8
+    [details] => new
+    [phone] => 568
+    [address] => colombia
+)
+Validated Data: Order ID: 8, Details: new, Phone: 568, Address: colombia
+Array
+(
+    [order_id] => 6
+    [details] => 628 x3
+    [phone] => +96878450412
+    [address] => know where2
+)
+Validated Data: Order ID: 6, Details: 628 x3, Phone: +96878450412, Address: know where2
+Array
+(
+    [order_id] => 3
+    [details] => 246
+    [phone] => 5551
+    [address] => hell's gate
+)
+Validated Data: Order ID: 3, Details: 246, Phone: 5551, Address: hell's gate
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 123
+    [address] => valhallah
+)
+Validated Data: Order ID: 1, Details: test, Phone: 123, Address: valhallah
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 123
+    [address] => valhallah
+)
+Validated Data: Order ID: 1, Details: test, Phone: 123, Address: valhallah
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 123
+    [address] => valhallah
+)
+Validated Data: Order ID: 1, Details: test, Phone: 123, Address: valhallah
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 123
+    [address] => valhallah
+)
+Validated Data: Order ID: 1, Details: test, Phone: 123, Address: valhallah
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 123
+    [address] => valhallah 2
+)
+Validated Data: Order ID: 1, Details: test, Phone: 123, Address: valhallah 2
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 123
+    [address] => valhallah 2
+)
+Validated Data: Order ID: 1, Details: test, Phone: 123, Address: valhallah 2
+Array
+(
+    [order_id] => 1
+    [details] => test
+    [phone] => 123
+    [address] => valhallah 2
+)
+Validated Data: Order ID: 1, Details: test, Phone: 123, Address: valhallah 2
+Array
+(
+    [order_id] => 8
+    [details] => 
+    [phone] => 
+    [address] => 
+)
+Validation Failed: Missing data
+Array
+(
+    [order_id] => 8
+    [details] => 
+    [phone] => 
+    [address] => 
+)
+Validation Failed: Missing data
+Array
+(
+    [order_id] => 1
+    [details] => 
+    [phone] => 
+    [address] => 
+)
+Validation Failed: Missing data
+Array
+(
+    [order_id] => 1
+    [invoice_no] => 1
+    [details] => test
+    [phone] => 1234
+    [address] => valhallah 2
+)
+Validated Data: Order ID: 1, Details: test, Phone: 1234, Address: valhallah 2
+Array
+(
+    [order_id] => 1
+    [invoice_no] => 1
+    [details] => test2
+    [phone] => 1234
+    [address] => valhallah 2
+)
+Validated Data: Order ID: 1, Details: test2, Phone: 1234, Address: valhallah 2

@@ -1,0 +1,172 @@
+/* General styles */
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #f9f9f9;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    margin-top: 20px;
+}
+
+h2 {
+    color: #333;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+/* Modern Navigation Bar */
+.navbar {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-brand {
+    font-size: 1.5rem;
+}
+
+.navbar-nav {
+    gap: 15px;
+}
+
+.nav-link {
+    transition: color 0.3s, background-color 0.3s;
+}
+
+.nav-link:hover {
+    color: #007bff;
+    background-color: #fff;
+}
+
+.btn-outline-danger:hover {
+    background-color: #dc3545;
+    color: #fff;
+    border-color: #dc3545;
+}
+
+/* Table styles */
+.table {
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.table th {
+    background-color: #007bff;
+    color: #fff;
+    text-align: center;
+}
+
+.table td {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.table tr:nth-child(even) {
+    background-color: #f2f2f2;
+}
+
+/* Forms */
+form {
+    background-color: #fff;
+    padding: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.form-label {
+    font-weight: bold;
+    margin-bottom: 5px;
+    color: #555;
+}
+
+/* Dashboard styles */
+.dashboard {
+    text-align: center;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+.dashboard h2 {
+    font-size: 2.5rem;
+    color: #007bff;
+    font-weight: bold;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+}
+
+.stats {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.stat-box {
+    width: 150px;
+    height: 150px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    border-radius: 10px;
+    color: #fff;
+    font-weight: bold;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.stat-box p {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.stat-box span {
+    font-size: 2rem;
+}
+
+/* Specific colors for each square */
+.total-orders {
+    background-color: #007bff;
+}
+
+.delivered-orders {
+    background-color: #28a745;
+}
+
+.pending-orders {
+    background-color: #ffc107;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    h2 {
+        font-size: 24px;
+    }
+
+    .table th,
+    .table td {
+        font-size: 14px;
+        padding: 8px;
+    }
+
+    form button {
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 576px) {
+    h2 {
+        font-size: 20px;
+    }
+
+    form {
+        padding: 15px;
+    }
+}
