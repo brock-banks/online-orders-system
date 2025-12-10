@@ -1,160 +1,847 @@
 <?php
-require_once 'config.php'; // Use require_once
-require_once 'functions.php'; // Use require_once
+require_once 'config.php';
+require_once 'functions.php'; // provides query() and session helpers
 
 if (!isLoggedIn()) {
     redirect('index.php');
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $details = $_POST['details'];
-    $invoiceNo = $_POST['invoice_no'];
-    $phone = $_POST['phone'];
-    $address = $_POST['address'];
-    $price = $_POST['price']; // New field for price
-    $selectedUserId = $_POST['selected_user_id']; // Get the selected user ID from the hidden input
+// Prepare variables
+$showReceipt = false;
+$receiptOrder = null;
+$receiptError = null;
+$whatsappURL = '';
+$qrTextRaw = '';
+$receiptUser = null;
 
-    query("INSERT INTO orders (user_id, details, invoice_no, phone, address, price) VALUES (?, ?, ?, ?, ?, ?)", 
-        [$selectedUserId, $details, $invoiceNo, $phone, $address, $price]);
-
-    $success = "Order placed successfully!";
-
-    // Prepare the WhatsApp message
-    $message = "السلام عليكم ورحمة الله وبركاته 
-شكرًا لطلبك من [متجر الشاهين للوازم الرحلات والتخييم]!
-رقم طلبك هو: # $invoiceNo
-يرجى الاحتفاظ بهذا الرقم لإستلام
-مكان الاستلام $address
-تفاصيل الطلب
-$details
-لمزيد من المعلومات أو المتابعة، يمكنك مراسلتنا على 
-72202722
-93211636
-تحياتنا،
-فريق [ALSHAHEEN ONLINE TEAM]";
-    $encodedMessage = urlencode($message);
-
-    // Generate the WhatsApp URL
-    $whatsappURL = "https://wa.me/$phone/?text=$encodedMessage";
-
-    // Output JavaScript to open WhatsApp in a new tab and show a success message
-    echo "<script>
-        // Open WhatsApp in a new tab
-        window.open('$whatsappURL', '_blank');
-        // Display success message
-        alert('Order placed successfully and WhatsApp message sent!');
-    </script>";
+// Safely fetch header logo value
+$headerLogo = '';
+try {
+    $row = query("SELECT value FROM settings WHERE key_name = 'header_logo' LIMIT 1")->fetch();
+    if ($row && isset($row['value'])) $headerLogo = $row['value'];
+} catch (Exception $e) {
+    error_log("place_order.php: failed to read header_logo setting: " . $e->getMessage());
+    $headerLogo = '';
 }
 
-// Fetch all users from the users table
-$users = query("SELECT id, username FROM users")->fetchAll();
+// Pre-compute fragile icon URL (relative, works in subfolders)
+$fragileUrl = (strpos($_SERVER['SCRIPT_NAME'],'/')===0 ? '' : '/') . 'uploads/fragile.svg';
+
+// TODO: if you have footer_info table, you can fetch shop address/phone here
+$shopAddress = 'ALSHAHEEN SHOP';    // replace with footer_info.address if you have it
+$shopPhone   = '+968 72202722';     // or any contact phone you prefer
+
+// Load places
+$places = [];
+try {
+    $places = query("SELECT PlaceID, PlaceName FROM `Map` ORDER BY PlaceName")->fetchAll();
+} catch (Exception $e) {
+    error_log('Could not load Map table: ' . $e->getMessage());
+    $places = [];
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $details = trim($_POST['details'] ?? '');
+    $invoiceNo = trim($_POST['invoice_no'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $address = trim($_POST['address'] ?? '');
+    $price = $_POST['price'] ?? 0;
+    $selectedUserId = (int)($_POST['selected_user_id'] ?? ($_SESSION['user']['id'] ?? 0));
+    $selectedPlaceId = $_POST['place_id'] ?? '';
+
+    if (!empty($selectedPlaceId)) {
+        try {
+            $placeRow = query("SELECT PlaceName FROM `Map` WHERE PlaceID = ? LIMIT 1", [$selectedPlaceId])->fetch();
+            if ($placeRow && !empty($placeRow['PlaceName'])) {
+                $address = $placeRow['PlaceName'];
+            }
+        } catch (Exception $e) {
+            error_log('Failed to fetch selected place: ' . $e->getMessage());
+        }
+    }
+
+    $invoiceNo = trim($invoiceNo);
+    $phone = trim($phone);
+    $price = is_numeric($price) ? (float)$price : 0.0;
+
+    // Normalize phone for WhatsApp link
+    $phoneNormalized = preg_replace('/[^\d+]/', '', $phone);
+    if (substr_count($phoneNormalized, '+') > 1) {
+        $phoneNormalized = preg_replace('/[^\d]/', '', $phoneNormalized);
+    }
+    $phoneForUrl = $phoneNormalized !== '' ? $phoneNormalized : preg_replace('/[^\d]/', '', $phone);
+
+    if ($invoiceNo === '' || $phone === '') {
+        $receiptError = "Invoice number and phone are required.";
+    } else {
+        try {
+            if (isset($pdo) && $pdo instanceof PDO) {
+                $pdo->beginTransaction();
+            }
+
+            query(
+                "INSERT INTO orders (user_id, details, invoice_no, phone, address, price) VALUES (?, ?, ?, ?, ?, ?)",
+                [$selectedUserId, $details, $invoiceNo, $phone, $address, $price]
+            );
+
+            $orderId = null;
+            if (isset($pdo) && $pdo instanceof PDO) {
+                $orderId = $pdo->lastInsertId();
+            }
+
+            if (!$orderId || $orderId === '0') {
+                $fallback = query("SELECT id FROM orders WHERE invoice_no = ? AND user_id = ? ORDER BY date DESC LIMIT 1", [$invoiceNo, $selectedUserId])->fetch();
+                if ($fallback && isset($fallback['id'])) {
+                    $orderId = $fallback['id'];
+                }
+            }
+
+            if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+                $pdo->commit();
+            }
+
+            if ($orderId) {
+                $receiptOrder = query("SELECT * FROM orders WHERE id = ? LIMIT 1", [$orderId])->fetch();
+            } else {
+                $receiptOrder = query("SELECT * FROM orders WHERE invoice_no = ? ORDER BY date DESC LIMIT 1", [$invoiceNo])->fetch();
+            }
+
+            if ($receiptOrder) {
+                try {
+                    $receiptUser = query("SELECT id, username FROM users WHERE id = ? LIMIT 1", [$receiptOrder['user_id']])->fetch();
+                } catch (Exception $e) {
+                    error_log('Failed to fetch receipt user: ' . $e->getMessage());
+                    $receiptUser = null;
+                }
+                if (!$receiptUser) {
+                    $receiptUser = ['id' => (int)$receiptOrder['user_id'], 'username' => 'user-' . (int)$receiptOrder['user_id']];
+                }
+
+                $showReceipt = true;
+
+                $message = "السلام عليكم ورحمة الله وبركاته\n"
+                    . "شكرًا لطلبك من [متجر الشاهين للوازم الرحلات والتخييم]!\n"
+                    . "رقم طلبك هو: # {$invoiceNo}\n"
+                    . "مكان الاستلام: {$address}\n"
+                    . "تفاصيل الطلب:\n{$details}\n\n"
+                    . "لمزيد من المعلومات أو المتابعة، يمكنك مراسلتنا على\n"
+                    . "72202722\n93211636\n\nتحياتنا،\nفريق [ALSHAHEEN ONLINE TEAM]";
+
+                $encodedMessage = rawurlencode($message);
+                $phoneForUrl = str_replace(' ', '', $phoneForUrl);
+                if ($phoneForUrl === '') $phoneForUrl = preg_replace('/[^\d]/', '', $phone);
+                $whatsappURL = "https://wa.me/{$phoneForUrl}/?text={$encodedMessage}";
+
+                $rInvoice = $receiptOrder['invoice_no'] ?? '';
+                $rUser = $receiptUser['username'] ?? ('user-' . (int)$receiptOrder['user_id']);
+
+                // QR text keeps full details and price
+                $qrTextRaw = "Invoice: {$rInvoice}\nUser: {$rUser}\nPhone: {$receiptOrder['phone']}\nAddress: {$receiptOrder['address']}\nPrice: " . number_format((float)($receiptOrder['price'] ?? 0), 2) . "\nDetails:\n{$receiptOrder['details']}\nDate: {$receiptOrder['date']}";
+            } else {
+                $receiptError = "Order was inserted but could not be retrieved.";
+            }
+        } catch (Exception $e) {
+            if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('Place order error: ' . $e->getMessage());
+            $receiptError = 'Failed to place order. Please try again or contact admin.';
+        }
+    }
+}
+
+// Fetch users
+$users = [];
+try {
+    $users = query("SELECT id, username FROM users ORDER BY username ASC")->fetchAll();
+} catch (Exception $e) {
+    error_log('place_order.php: failed to load users: ' . $e->getMessage());
+    $users = [];
+}
 ?>
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Place Order</title>
-    <!-- Include Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .user-button {
-            transition: background-color 0.3s ease;
-        }
-        .user-button.selected {
-            background-color: #0d6efd !important; /* Highlighted blue color */
-            color: white !important;
-        }
-    </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Place Order</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+
+<style>
+.user-button { transition: background-color .2s; }
+.user-button.selected { background-color: #0d6efd !important; color: #fff !important; }
+.item-code-group { display:flex; gap:10px; align-items:center; }
+.item-code-group .code-input { flex:1; }
+.item-code-group .qty-input { width:100px; }
+
+.receipt-card { max-width: 720px; margin:0 auto; }
+.receipt-logo { max-height: 80px; object-fit:contain; }
+
+.ts-control.form-control { height: calc(2.25rem + 2px); padding: .375rem .75rem; }
+
+@media (max-width:576px){
+  .item-code-group { flex-direction:column; }
+  .item-code-group .qty-input { width:100%; }
+}
+</style>
 </head>
 <body>
-<?php include 'header.php'; ?> <!-- Include the header -->
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-md-8">
-            <div class="card shadow">
-                <div class="card-body">
-                    <h2 class="card-title text-center text-primary mb-4">Place Order</h2>
-                    <?php if (isset($success)): ?>
-                        <div class="alert alert-success text-center"><?php echo $success; ?></div>
-                    <?php endif; ?>
-                    <form method="POST">
-                        <div class="mb-3">
-                            <label for="details" class="form-label">Order Details</label>
-                            <textarea class="form-control" id="details" name="details" rows="3" required></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label for="invoice_no" class="form-label">Invoice Number</label>
-                            <input type="text" class="form-control" id="invoice_no" name="invoice_no" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="phone" class="form-label">Phone Number</label>
-                            <input type="text" class="form-control" id="phone" name="phone" value="+968" required> <!-- Default value set -->
-                        </div>
-                        <div class="mb-3">
-                            <label for="address" class="form-label">Address</label>
-                            <textarea class="form-control" id="address" name="address" rows="3" required></textarea>
-                        </div>
-                        
+<?php include 'header.php'; ?>
 
-                        <!-- Buttons to autofill the address -->
-                        <div class="mb-3">
-                            <button type="button" class="btn btn-outline-primary" onclick="fillAddress('Shop1')">Shop1</button>
-                            <button type="button" class="btn btn-outline-primary" onclick="fillAddress('Shop2')">Shop2</button>
-                            <button type="button" class="btn btn-outline-primary" onclick="fillAddress('Shop3')">Shop3</button>
-                            <button type="button" class="btn btn-outline-primary" onclick="fillAddress('Cargo')">Cargo</button>
-                        </div>
-                        <div class="mb-3">
-                            <label for="price" class="form-label">Price</label> <!-- New field for price -->
-                            <input type="number" class="form-control" id="price" name="price" step="0.01" min="0" required>
-                        </div>
-                        <!-- Buttons to select user -->
-                        <div class="mb-3">
-                            <label class="form-label">Select User</label>
-                            <div>
-                                <?php foreach ($users as $user): ?>
-                                    <button type="button" class="btn btn-outline-secondary mb-2 user-button" 
-                                            onclick="selectUser(this, <?php echo $user['id']; ?>)">
-                                        <?php echo htmlspecialchars($user['username']); ?>
-                                    </button>
-                                <?php endforeach; ?>
-                            </div>
-                        </div>
+<div class="container mt-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <div class="card mb-4 shadow-sm">
+        <div class="card-body">
+          <h4 class="card-title text-center text-primary mb-3">Place Order</h4>
 
-                        <!-- Hidden input to store selected user ID -->
-                        <input type="hidden" id="selected_user_id" name="selected_user_id" value="<?php echo $_SESSION['user']['id']; ?>">
+          <?php if (!empty($receiptError)): ?>
+            <div class="alert alert-danger"><?php echo htmlspecialchars($receiptError); ?></div>
+          <?php endif; ?>
 
-                        <button type="submit" class="btn btn-primary w-100">Place Order</button>
-                    </form>
-                </div>
+          <form id="placeOrderForm" method="POST" autocomplete="off">
+            <div class="mb-3">
+              <label class="form-label">Add Item by Code</label>
+              <div class="item-code-group">
+                <input id="item_code_input" type="text" class="form-control code-input" placeholder="Item code (e.g. ABC123)">
+                <input id="item_qty_input" type="number" class="form-control qty-input" value="1" min="1">
+                <button type="button" id="addItemBtn" class="btn btn-outline-primary">Add Item</button>
+              </div>
+              <div class="form-text">Enter an item code and quantity, then click "Add Item" to append to Details.</div>
             </div>
+
+            <div class="mb-3">
+              <label class="form-label">Order Details</label>
+              <textarea id="details" name="details" rows="4" class="form-control" required><?php echo isset($details) ? htmlspecialchars($details) : ''; ?></textarea>
+            </div>
+
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Invoice Number</label>
+                <input id="invoice_no" name="invoice_no" class="form-control" required value="<?php echo isset($invoiceNo) ? htmlspecialchars($invoiceNo) : ''; ?>">
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Phone</label>
+                <input id="phone" name="phone" class="form-control" required value="<?php echo isset($phone) ? htmlspecialchars($phone) : '+968'; ?>">
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Place (optional)</label>
+              <select id="place_id" name="place_id" class="form-select">
+                <option value="">-- Select a place --</option>
+                <?php foreach ($places as $p): ?>
+                  <option value="<?php echo (int)$p['PlaceID']; ?>"><?php echo htmlspecialchars($p['PlaceName']); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <div class="form-text">Start typing to search places. Selecting a place will autofill Address (editable).</div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Address</label>
+              <textarea id="address" name="address" rows="3" class="form-control" required><?php echo isset($address) ? htmlspecialchars($address) : ''; ?></textarea>
+            </div>
+
+            <div class="mb-3">
+              <button type="button" class="btn btn-outline-primary me-1" onclick="fillAddress('Shop1-  نقليات الجيش - maps.app.goo.gl/7zhYF82AUYRCVZhr5')">Shop1</button>
+              <button type="button" class="btn btn-outline-primary me-1" onclick="fillAddress('Shop2 -  المعبيلةالسابعة - maps.app.goo.gl/5MzbVyhTv38dtxE88')">Shop2</button>
+              <button type="button" class="btn btn-outline-primary me-1" onclick="fillAddress('Shop3- السويق- maps.app.goo.gl/918XaBJ1zsXQpKWq8')">Shop3</button>
+              <button type="button" class="btn btn-outline-primary" onclick="fillAddress('Cargo')">Cargo</button>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Price</label>
+              <input id="price" name="price" type="number" step="0.01" class="form-control" value="<?php echo isset($price) ? htmlspecialchars($price) : '0'; ?>" min="0" required>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Select User</label>
+              <div>
+                <?php foreach ($users as $u): ?>
+                  <button type="button" class="btn btn-outline-secondary me-1 mb-1 user-button" onclick="selectUser(this, <?php echo (int)$u['id']; ?>)"><?php echo htmlspecialchars($u['username']); ?></button>
+                <?php endforeach; ?>
+              </div>
+              <input type="hidden" id="selected_user_id" name="selected_user_id" value="<?php echo (int)($_SESSION['user']['id'] ?? 0); ?>">
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100">Place Order</button>
+          </form>
         </div>
+      </div>
+
+      <!-- Modal preview (can keep simple; print layout is handled in JS) -->
+      <div class="modal fade" id="receiptModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Online Order</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <?php if ($showReceipt && $receiptOrder): ?>
+                <?php
+                  $rInvoice = htmlspecialchars($receiptOrder['invoice_no']);
+                  $rPhone = htmlspecialchars($receiptOrder['phone']);
+                  $rAddressPlain = htmlspecialchars($receiptOrder['address']);
+                  $rDate = htmlspecialchars($receiptOrder['date']);
+                  $rUsername = htmlspecialchars($receiptUser['username'] ?? ('user-' . (int)$receiptOrder['user_id']));
+                ?>
+                <div id="receipt" class="receipt-card">
+                  <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div class="meta text-start" style="flex:1;">
+                      <div style="font-weight:600;font-size:14px;">Invoice: <?php echo $rInvoice; ?></div>
+                      <div style="font-size:11px; color:#666;"><?php echo $rDate; ?></div>
+                    </div>
+                    <div class="logo-wrap text-end" style="min-width:90px;">
+                      <?php if (!empty($headerLogo)): ?>
+                        <img src="<?php echo htmlspecialchars($headerLogo); ?>" alt="Logo" class="receipt-logo" style="max-height:48px;">
+                      <?php else: ?>
+                        <div style="font-weight:700;font-size:14px;">ALSHAHEEN</div>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+
+                  <table class="table table-borderless mb-2 small">
+                    <tr><th style="width:30%;">Customer</th><td><?php echo $rUsername; ?></td></tr>
+                    <tr><th>Phone</th><td><?php echo $rPhone; ?></td></tr>
+                    <tr><th>Address</th><td style="white-space:pre-line;"><?php echo $rAddressPlain; ?></td></tr>
+                  </table>
+
+                  <div class="text-center">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=<?php echo urlencode($qrTextRaw); ?>" alt="QR" style="max-width:120px;">
+                    <div class="small text-muted mt-1">Scan QR for full details</div>
+                  </div>
+                </div>
+              <?php else: ?>
+                <div class="alert alert-warning">Receipt data not available.</div>
+              <?php endif; ?>
+            </div>
+            <div class="modal-footer">
+              <button type="button" id="printAndSendBtn" class="btn btn-success">Print & Send WhatsApp</button>
+              <button type="button" id="saveAndSendBtn" class="btn btn-primary">Save & Send WhatsApp</button>
+              <a href="orders.php" class="btn btn-outline-secondary">Back to Orders</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
+  </div>
 </div>
 
-<!-- Include Bootstrap JS -->
+<!-- Scripts -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+
 <script>
-    // JavaScript function to autofill the address textarea
-    function fillAddress(text) {
-        document.getElementById('address').value = text;
+// small helpers + global addItemByCode (correct "not found" behavior)
+(function () {
+  window.fillAddress = window.fillAddress || function(text) {
+    try {
+      var el = document.getElementById('address');
+      if (el) el.value = text;
+    } catch (e) { console.warn('fillAddress fallback error', e); }
+  };
+
+  window.selectUser = window.selectUser || function(button, userId) {
+    try {
+      document.querySelectorAll('.user-button').forEach(b => b.classList.remove('selected'));
+      if (button && button.classList) button.classList.add('selected');
+      var hid = document.getElementById('selected_user_id');
+      if (hid) hid.value = String(userId);
+    } catch (e) { console.warn('selectUser fallback error', e); }
+  };
+
+  // Unified addItemByCode: fetch item; if not found, show alert and DO NOT append
+  window.addItemByCode = window.addItemByCode || function() {
+    try {
+      var codeEl = document.getElementById('item_code_input');
+      var qtyEl = document.getElementById('item_qty_input');
+      var detailsEl = document.getElementById('details');
+      if (!codeEl || !qtyEl || !detailsEl) return;
+
+      var code = (codeEl.value || '').trim();
+      var qty = parseInt(qtyEl.value || '1', 10) || 1;
+      if (!code) { alert('Please enter an item code.'); codeEl.focus(); return; }
+
+      fetch('fetch_item.php?itemcode=' + encodeURIComponent(code), { credentials: 'same-origin' })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (!data || data.error || !data.itemcode) {
+            alert(data && data.error ? data.error : 'Item not found.');
+            return;
+          }
+          var entry = data.itemcode + ' x' + qty + ' - ' + (data.itemname || '');
+          detailsEl.value = (detailsEl.value || '').trim() === '' ? entry : detailsEl.value + '\n' + entry;
+          codeEl.value = '';
+          qtyEl.value = '1';
+          codeEl.focus();
+        })
+        .catch(function(err) {
+          console.warn('fetch_item failed:', err);
+          alert('Failed to fetch item. Please try again.');
+        });
+    } catch (e) {
+      console.warn('addItemByCode fallback error', e);
     }
-
-    // JavaScript function to set the selected user and highlight the button
-    function selectUser(button, userId) {
-        // Remove 'selected' class from all user buttons
-        const buttons = document.querySelectorAll('.user-button');
-        buttons.forEach(btn => btn.classList.remove('selected'));
-
-        // Add 'selected' class to the clicked button
-        button.classList.add('selected');
-
-        // Set the hidden input value to the selected user ID
-        document.getElementById('selected_user_id').value = userId;
-    }
+  };
+})();
 </script>
-<?php
-include 'footer.php';
-?>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  // TomSelect
+  try {
+    const placeEl = document.getElementById('place_id');
+    if (placeEl) {
+      const ts = new TomSelect('#place_id', {
+        valueField: 'id',
+        labelField: 'text',
+        searchField: 'text',
+        preload: false,
+        load: function(query, callback) {
+          if (!query.length) return callback();
+          fetch('map_search.php?q=' + encodeURIComponent(query), { credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(json => callback(json.results || []))
+            .catch(err => { console.error('Place search error', err); callback(); });
+        },
+        render: {
+          option: function(item, escape) { return '<div>' + escape(item.text) + '</div>'; },
+          item: function(item, escape) { return '<div>' + escape(item.text) + '</div>'; }
+        },
+        maxOptions: 100,
+        allowEmptyOption: true,
+        create: false
+      });
+
+      ts.on('change', function(value) {
+        if (!value) return;
+        const opt = ts.options[value];
+        if (opt && opt.text) {
+          document.getElementById('address').value = opt.text;
+          return;
+        }
+        fetch('map_search.php?id=' + encodeURIComponent(value), { credentials: 'same-origin' })
+          .then(r => r.json())
+          .then(json => {
+            if (json.results && json.results[0] && json.results[0].text) {
+              document.getElementById('address').value = json.results[0].text;
+            }
+          }).catch(err => console.warn('Failed to fetch place name by id', err));
+      });
+    }
+  } catch (err) {
+    console.warn('TomSelect init failed', err);
+  }
+
+  const nativePlace = document.getElementById('place_id');
+  if (nativePlace) {
+    nativePlace.addEventListener('change', function() {
+      const val = this.value;
+      if (!val) return;
+      const name = this.options[this.selectedIndex]?.text || '';
+      if (name) document.getElementById('address').value = name;
+    });
+  }
+
+  // Add item bindings (single handler)
+  const addItemBtn = document.getElementById('addItemBtn');
+  const itemCodeInput = document.getElementById('item_code_input');
+  const itemQtyInput = document.getElementById('item_qty_input');
+
+  if (addItemBtn) {
+    addItemBtn.addEventListener('click', function () {
+      if (typeof window.addItemByCode === 'function') window.addItemByCode();
+    });
+  }
+  [itemCodeInput, itemQtyInput].forEach(el => {
+    if (!el) return;
+    el.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (typeof window.addItemByCode === 'function') window.addItemByCode();
+      }
+    });
+  });
+
+  // Print layout variables
+  const showReceipt = <?php echo $showReceipt ? 'true' : 'false'; ?>;
+  const whatsappURL = <?php echo json_encode($whatsappURL); ?>;
+  const qrTextPHP = <?php echo json_encode($qrTextRaw); ?>;
+  const fragileUrlJS = <?php echo json_encode($fragileUrl); ?>;
+  const shopAddressJS = <?php echo json_encode($shopAddress); ?>;
+  const shopPhoneJS   = <?php echo json_encode($shopPhone); ?>;
+  const headerLogoJS  = <?php echo json_encode($headerLogo); ?>;
+
+  const receiptData = <?php
+    $r = $receiptOrder ?? [];
+    echo json_encode([
+      'invoice'  => $r['invoice_no'] ?? '',
+      'date'     => $r['date'] ?? '',
+      'order_id' => $r['id'] ?? '',
+      'phone'    => $r['phone'] ?? '',
+      'address'  => $r['address'] ?? '',
+    ]);
+  ?>;
+
+  if (showReceipt) {
+    const receiptModalEl = document.getElementById('receiptModal');
+    const receiptModal = new bootstrap.Modal(receiptModalEl, { backdrop: 'static', keyboard: false });
+    receiptModal.show();
+
+    (function() {
+      function loadQRious() {
+        return new Promise((resolve, reject) => {
+          if (window.QRious) return resolve(window.QRious);
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js';
+          s.async = true;
+          s.onload = () => resolve(window.QRious);
+          s.onerror = () => reject(new Error('Failed to load QRious library'));
+          document.head.appendChild(s);
+        });
+      }
+
+      async function generateQRDataURL(text, size = 500) {
+        try {
+          const QRious = await loadQRious();
+          const qr = new QRious({ value: text, size: size });
+          return qr.toDataURL('image/png');
+        } catch (e) {
+          return 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encodeURIComponent(text);
+        }
+      }
+
+      function waitForImages(context, timeout = 3000) {
+        return new Promise((resolve) => {
+          try {
+            let imgs;
+            if (context && context.document && context.document.images) imgs = Array.from(context.document.images);
+            else if (context && context.getElementsByTagName) imgs = Array.from(context.getElementsByTagName('img'));
+            else { resolve(); return; }
+            if (imgs.length === 0) { resolve(); return; }
+            let remaining = imgs.length;
+            let finished = false;
+            function one() {
+              if (finished) return;
+              remaining--;
+              if (remaining <= 0) { finished = true; resolve(); }
+            }
+            imgs.forEach(img => {
+              try {
+                if (img.complete && img.naturalWidth > 0) one();
+                else {
+                  img.addEventListener('load', one, { once: true });
+                  img.addEventListener('error', one, { once: true });
+                }
+              } catch (e) { one(); }
+            });
+            setTimeout(() => { if (!finished) { finished = true; resolve(); } }, timeout);
+          } catch (e) { resolve(); }
+        });
+      }
+
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function(m) {
+          return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];
+        });
+      }
+
+      // Build the label layout similar to the sample image
+      function buildPrintDocumentHtml(data, qrDataUrl) {
+        const invoice = data.invoice || '';
+        const humanCode = 'INV ' + invoice;
+
+        const css = `
+        <style>
+          @page { size: 101.6mm 101.6mm; margin: 4mm; }
+          html, body { margin:0; padding:0; background:#fff; color:#000; -webkit-print-color-adjust:exact; }
+          body { font-family: Arial, Helvetica, sans-serif; font-size:10px; line-height:1.2; }
+
+          .label-frame {
+            width: calc(101.6mm - 8mm);
+            height: calc(101.6mm - 8mm);
+            border: 1px solid #000;
+            border-radius: 3mm;
+            box-sizing: border-box;
+            padding: 3mm;
+            display:flex;
+            flex-direction:column;
+            justify-content:flex-start;
+          }
+
+          .logo-area {
+            text-align:center;
+            margin-bottom:3mm;
+          }
+          .logo-area img {
+            max-height: 16mm;
+            width:auto;
+          }
+          .logo-text {
+            font-weight:700;
+            font-size:13px;
+          }
+
+          .from-to {
+            display:flex;
+            justify-content:space-between;
+            gap:3mm;
+            font-size:9px;
+          }
+          .from, .to {
+            flex:1;
+            border-top:1px solid #000;
+            padding-top:1.2mm;
+          }
+          .from-title, .to-title {
+            font-weight:700;
+            margin-bottom:0.8mm;
+          }
+          .from-line, .to-line {
+            white-space:normal;
+          }
+
+          .mid-sep {
+            border-top:1px solid #000;
+            margin:2mm 0 1.5mm;
+          }
+
+          .middle-title {
+            text-align:center;
+            font-weight:700;
+            font-size:12px;
+            margin-bottom:2mm;
+          }
+
+          .mid-band {
+            display:flex;
+            flex:1;
+            align-items:flex-start;
+            gap:3mm;
+          }
+
+          .fragile-block {
+            width: 22mm;
+            border:1px solid #000;
+            box-sizing:border-box;
+            padding:1.5mm 1mm;
+            text-align:center;
+            font-size:9px;
+          }
+          .fragile-block .label {
+            font-weight:700;
+            margin-bottom:1mm;
+          }
+          .fragile-block img {
+            max-width: 16mm;
+            max-height: 16mm;
+          }
+
+          .code-bar-block {
+            flex:1;
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:flex-start;
+            gap:1.5mm;
+          }
+          .human-code {
+            font-size:9px;
+            letter-spacing:1px;
+          }
+          .barcode {
+            width:100%;
+            height:16mm;
+            display:flex;
+            align-items:flex-end;
+            justify-content:center;
+            overflow:hidden;
+          }
+          .barcode-inner {
+            width:80%;
+            height:100%;
+            display:flex;
+            align-items:flex-end;
+          }
+          .barcode-bar {
+            background:#000;
+            margin-right:1px;
+          }
+
+          .qr-block {
+            width:22mm;
+            text-align:center;
+          }
+          .qr-block img {
+            max-width:22mm;
+            max-height:22mm;
+          }
+
+          .bottom-row {
+            margin-top:2mm;
+            border-top:1px solid #000;
+            padding-top:1.5mm;
+            display:flex;
+            justify-content:space-between;
+            font-size:9px;
+          }
+          .order-id {
+            font-weight:700;
+          }
+          .instr-title {
+            font-weight:700;
+            margin-bottom:0.5mm;
+          }
+        </style>
+        `;
+
+        const fromBlock = `
+          <div class="from">
+            <div class="from-title">From:</div>
+            <div class="from-line">${escapeHtml(shopAddressJS)}</div>
+            <div class="from-line">${escapeHtml(shopPhoneJS)}</div>
+          </div>
+        `;
+
+        const toBlock = `
+          <div class="to">
+            <div class="to-title">To:</div>
+            <div class="to-line">${escapeHtml(data.phone || '')}</div>
+            <div class="to-line">${escapeHtml(data.address || '')}</div>
+          </div>
+        `;
+
+        const logoBlock = headerLogoJS
+          ? `<img src="${escapeHtml(headerLogoJS)}" alt="Logo">`
+          : `<div class="logo-text">ALSHAHEEN</div>`;
+
+        // simple fake barcode: widths derived from invoice chars
+        let barsHtml = '';
+        const codeStr = (invoice || '000000').replace(/\s+/g, '');
+        for (let i = 0; i < codeStr.length; i++) {
+          const ch = codeStr.charCodeAt(i);
+          const w = 1 + (ch % 3); // 1–3px
+          const h = 40 + (ch % 12); // varying height
+          barsHtml += `<div class="barcode-bar" style="width:${w}px;height:${h}px"></div>`;
+        }
+
+        const orderIdText = data.order_id ? String(data.order_id).padStart(5, '0') : '';
+
+        const bodyHtml = `
+          <div class="label-frame">
+            <div class="logo-area">${logoBlock}</div>
+
+            <div class="from-to">
+              ${fromBlock}
+              ${toBlock}
+            </div>
+
+            <div class="mid-sep"></div>
+
+            <div class="middle-title">ONLINE ORDER</div>
+
+            <div class="mid-band">
+              <div class="fragile-block">
+                <div class="label">FRAGILE</div>
+                <img src="${escapeHtml(fragileUrlJS)}" alt="Fragile">
+              </div>
+
+              <div class="code-bar-block">
+                <div class="human-code">${escapeHtml(humanCode)}</div>
+                <div class="barcode">
+                  <div class="barcode-inner">
+                    ${barsHtml}
+                  </div>
+                </div>
+              </div>
+
+              <div class="qr-block">
+                <img src="${qrDataUrl}" alt="QR">
+              </div>
+            </div>
+
+            <div class="bottom-row">
+              <div class="order-id">Order ID: ${escapeHtml(orderIdText)}</div>
+              <div class="instr">
+                <div class="instr-title">Delivery instructions</div>
+                <div>Handle with care – fragile</div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">${css}</head><body>${bodyHtml}</body></html>`;
+      }
+
+      async function doPrint() {
+        const qrDataUrl = await generateQRDataURL(qrTextPHP, 500);
+        const html = buildPrintDocumentHtml(receiptData || {}, qrDataUrl);
+
+        const popup = window.open('', '_blank', 'toolbar=0,location=0,menubar=0,width=700,height=900');
+        if (popup) {
+          popup.document.open();
+          popup.document.write(html);
+          popup.document.close();
+          try { await waitForImages(popup, 3000); } catch (e) {}
+          try { popup.focus(); popup.print(); } catch (e) { console.warn(e); }
+          setTimeout(() => { try { popup.close(); } catch (e) {} }, 800);
+        } else {
+          try {
+            const iframe = document.createElement('iframe');
+            iframe.style.position = 'fixed';
+            iframe.style.left = '-9999px';
+            iframe.style.top = '0';
+            document.body.appendChild(iframe);
+            const idoc = iframe.contentWindow.document;
+            idoc.open(); idoc.write(html); idoc.close();
+            try { await waitForImages(idoc, 3000); } catch (e) {}
+            try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch (e) { console.warn(e); }
+            setTimeout(() => { try { document.body.removeChild(iframe); } catch (e) {} }, 1000);
+          } catch (e) {
+            console.error('Print failed', e);
+            alert('Printing failed. Please check popup blocker.');
+            return;
+          }
+        }
+
+        if (whatsappURL) {
+          try { window.open(whatsappURL, '_blank'); } catch (e) { console.warn(e); }
+        }
+        setTimeout(() => { window.location.href = 'place_order.php'; }, 900);
+      }
+
+      const printBtn = document.getElementById('printAndSendBtn');
+      if (printBtn) {
+        printBtn.addEventListener('click', function() {
+          doPrint().catch(err => { console.error(err); alert('Printing failed'); });
+        }, { once: true });
+      }
+
+      const saveBtn = document.getElementById('saveAndSendBtn');
+      if (saveBtn) {
+        saveBtn.addEventListener('click', function () {
+          try {
+            if (whatsappURL) {
+              window.open(whatsappURL, '_blank');
+            }
+          } catch (e) {
+            console.warn('Save & Send WhatsApp failed', e);
+          } finally {
+            try { receiptModal.hide(); } catch(e){}
+            setTimeout(() => { window.location.href = 'place_order.php'; }, 500);
+          }
+        }, { once: true });
+      }
+    })();
+  }
+});
+</script>
+
+<?php include 'footer.php'; ?>
 </body>
 </html>

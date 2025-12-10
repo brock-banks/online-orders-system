@@ -1,20 +1,31 @@
 <?php
 require_once 'config.php';
+require_once 'functions.php';
 
-$currentDate = new DateTime();
-$currentDate->modify('-30 days'); // Subtract 30 days
+if (!isLoggedIn()) {
+    // Only logged-in users should run this (or restrict further)
+    http_response_code(403);
+    echo "Access denied.";
+    exit;
+}
 
-// Query to find orders older than 30 days with status "pending"
+// Use a threshold datetime 30 days ago (end of that day) to be safe
+$thresholdDt = new DateTime();
+$thresholdDt->modify('-30 days');
+$thresholdStr = $thresholdDt->format('Y-m-d 23:59:59');
+
+// Query to find orders older than 30 days and NOT delivered
 $pendingOrders = query(
-    "SELECT * FROM orders WHERE status =! 'delivered' AND date <= ?",
-    [$currentDate->format('Y-m-d')]
+    "SELECT * FROM orders WHERE status != 'delivered' AND date <= ?",
+    [$thresholdStr]
 )->fetchAll();
 
 foreach ($pendingOrders as $order) {
     $userId = $order['user_id'];
-    $message = "Order #{$order['invoice_no']} has been pending for over 30 days. Please take action.";
+    $invoice = $order['invoice_no'] ?? $order['id'];
+    $message = "Order #{$invoice} has been pending for over 30 days. Please take action.";
 
-    // Insert notification into the notifications table
+    // Insert notification into the notifications table (create table if missing)
     query(
         "INSERT INTO notifications (user_id, message) VALUES (?, ?)",
         [$userId, $message]
@@ -22,4 +33,3 @@ foreach ($pendingOrders as $order) {
 }
 
 echo "Notifications for pending orders created successfully.";
-?>

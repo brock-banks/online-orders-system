@@ -1,0 +1,4 @@
+/* Small styles for admin dashboard */
+.receipt-card { background: #fff; border-radius: 6px; padding: 10px; }
+.receipt-logo { max-height: 64px; }
+.card .fs-4 { font-size: 1.6rem; }

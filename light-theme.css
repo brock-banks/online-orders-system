@@ -1,46 +1,86 @@
-/* Light Theme Styles */
-/* Light Theme Header Customizations */
-.navbar-light.bg-light {
-    background-color: #ffffff !important; /* Light background */
-    color: #000000 !important; /* Dark text */
-}
-/* General Body Styles */
-body {
-    background-color: #ffffff; /* Light background */
-    color: #000000; /* Dark text for contrast */
+/* Light Theme Styles (variable-driven)
+   Uses CSS variables so the primary color is configurable from PHP (header.php).
+   Default primary color matches Bootstrap blue to preserve current look when no setting is present.
+*/
+:root {
+    --primary: #568fc5;      /* default primary */
+    --primary-dark: #326ebd; /* default primary dark (hover) */
+    --primary-contrast: #ffffff;
+    --card-bg: #f8f9fa;
+    --body-bg: #ffffff;
+    --text-color: #000000;
 }
 
-/* Header Styles */
+/* General Body Styles */
+body {
+    background-color: var(--body-bg); /* Light background */
+    color: var(--text-color); /* Dark text for contrast */
+}
+
+/* Header Styles -- header.php injects --primary when available */
 header {
-    background-color: #f8f9fa; /* Light gray background */
-    color: #000000; /* Dark text */
-    border-bottom: 1px solid #e0e0e0; /* Subtle border */
+    background-color: transparent;
+    color: var(--text-color);
+    border-bottom: 1px solid #e0e0e0;
     padding: 10px 20px;
 }
 
 /* Footer Styles */
 footer {
-    background-color: #f8f9fa; /* Light gray background */
-    color: #000000; /* Dark text */
-    border-top: 1px solid #e0e0e0; /* Subtle border */
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    border-top: 1px solid #e0e0e0;
     padding: 10px 20px;
     text-align: center;
 }
 
 /* Card Styles */
 .card {
-    background-color: #f8f9fa; /* Light background */
-    color: #000000; /* Dark text */
-    border: 1px solid #e0e0e0; /* Subtle card border */
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    border: 1px solid #e0e0e0;
 }
 
-/* Button Styles */
+/* Buttons use the theme variables */
 .btn-primary {
-    background-color: #007bff; /* Blue button */
-    color: #ffffff; /* White text */
-    border: none;
+    background-color: var(--primary);
+    color: var(--primary-contrast);
+    border: 1px solid var(--primary);
 }
 
-.btn-primary:hover {
-    background-color: #0056b3; /* Darker blue on hover */
+.btn-primary:hover,
+.btn-primary:focus {
+    background-color: var(--primary-dark);
+    border-color: var(--primary-dark);
+    color: var(--primary-contrast);
+}
+
+/* Make outline-primary also respect the primary color */
+.btn-outline-primary {
+    color: var(--primary);
+    border-color: var(--primary);
+}
+.btn-outline-primary:hover {
+    background-color: var(--primary);
+    color: var(--primary-contrast);
+}
+
+/* Small readable variants */
+.text-primary {
+    color: var(--primary) !important;
+}
+.bg-primary-custom {
+    background-color: var(--primary) !important;
+    color: var(--primary-contrast) !important;
+}
+
+/* Forms, inputs and small adjustments */
+.form-control:focus {
+    box-shadow: 0 0 0 .15rem rgba(0, 123, 255, 0.15);
+    /* note: we could compute rgba from --primary in newer browsers; leaving fallbacks */
+}
+
+/* Misc */
+.navbar {
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
 }

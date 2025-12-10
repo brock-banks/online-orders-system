@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($user && password_verify($password, $user['password'])) {
         $_SESSION['user'] = $user;
         if ($user['role'] === 'admin') {
-            redirect('dashboard.php');
+            redirect('admin_dashboard.php');
         } else {
             redirect('orders.php');
         }
