@@ -69,6 +69,7 @@ if ($currentTheme !== 'dark') {
 <!doctype html>
 <html lang="en">
 <head>
+<link href="assets/css/app.css" rel="stylesheet">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title><?php echo htmlspecialchars($headerName); ?></title>
@@ -146,8 +147,9 @@ echo $rootCssVars;
         <div class="d-flex align-items-center">
           <button id="searchToggle" class="btn btn-sm btn-outline-light me-2" type="button" aria-label="Toggle search">🔍</button>
           <form id="headerSearchForm" class="d-none d-md-flex" method="GET" action="orders.php" role="search" aria-label="Search orders">
-            <input id="headerSearchInput" name="search" class="form-control form-control-sm header-search" type="search" placeholder="Search orders, invoice, phone..." aria-label="Search orders">
-          </form>
+    <input type="hidden" name="search_type" value="invoice_no">
+    <input id="headerSearchInput" name="search_value" class="form-control form-control-sm header-search" type="search" placeholder="Search by invoice no..." aria-label="Search by invoice number">
+</form>
         </div>
 
         <div class="nav-item dropdown">
@@ -276,5 +278,6 @@ echo $rootCssVars;
   fallbackCollapse();
 })();
 </script>
+<script src="assets/js/app.js"></script>
 </body>
 </html>

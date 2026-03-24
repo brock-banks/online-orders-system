@@ -1,48 +1,103 @@
 <?php
-require 'config.php';
-require 'functions.php';
+require_once 'config.php';
+require_once 'functions.php';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $orderId = $_POST['order_id'];
-    $deliveredBy = $_POST['delivered_by'];
+$isAjax = (
+    (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
+    (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
+);
 
-    // Fetch order details
-    $order = query("SELECT * FROM orders WHERE id = ?", [$orderId])->fetch();
+if ($isAjax) {
+    header('Content-Type: application/json; charset=utf-8');
+}
+
+if (!isLoggedIn()) {
+    if ($isAjax) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Access denied.']);
+    } else {
+        redirect('index.php');
+    }
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    if ($isAjax) {
+        http_response_code(405);
+        echo json_encode(['success' => false, 'message' => 'Invalid request method.']);
+    } else {
+        redirect('orders.php');
+    }
+    exit;
+}
+
+$orderId = (int)($_POST['order_id'] ?? 0);
+$deliveredBy = trim($_POST['delivered_by'] ?? '');
+
+if ($orderId <= 0 || $deliveredBy === '') {
+    if ($isAjax) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Order ID and delivery person are required.']);
+    } else {
+        redirect('orders.php');
+    }
+    exit;
+}
+
+try {
+    $order = query("SELECT * FROM orders WHERE id = ? LIMIT 1", [$orderId])->fetch();
+
     if (!$order) {
-        die("Order not found.");
+        if ($isAjax) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Order not found.']);
+        } else {
+            redirect('orders.php');
+        }
+        exit;
     }
 
-    // Update order status
-    query("UPDATE orders SET status = 'delivered', delivered_by = ? WHERE id = ?", [$deliveredBy, $orderId]);
+    query(
+        "UPDATE orders SET status = 'delivered', delivered_by = ? WHERE id = ?",
+        [$deliveredBy, $orderId]
+    );
 
-    // Prepare the WhatsApp message
-    $message = "مرحباً،
-تم استلام طلبك رقم# 
-{$order['invoice_no']}
-تفاصيل الطلب
-{$order['details']}
-تم التسليم عن طريق
-$deliveredBy
-، شكرًا لثقتك بنا!
-سعداء بخدمتك، ونتمنى لك تجربة تسوّق رائعة.
-تحياتنا،
-فريق [ALSHAHEEN ONLINE TEAM]";
-    $phone = $order['phone']; // Ensure this is in E.164 format (e.g., 1234567890)
+    $message = "مرحباً،\n"
+        . "تم استلام طلبك رقم#\n"
+        . ($order['invoice_no'] ?? '') . "\n"
+        . "تفاصيل الطلب\n"
+        . ($order['details'] ?? '') . "\n"
+        . "تم التسليم عن طريق\n"
+        . $deliveredBy . "\n"
+        . "، شكرًا لثقتك بنا!\n"
+        . "سعداء بخدمتك، ونتمنى لك تجربة تسوّق رائعة.\n"
+        . "تحياتنا،\n"
+        . "فريق [ALSHAHEEN ONLINE TEAM]";
 
-    // Encode the message for the WhatsApp URL
-    $encodedMessage = urlencode($message);
+    $phone = preg_replace('/[^\d]/', '', (string)($order['phone'] ?? ''));
+    $whatsappURL = "https://api.whatsapp.com/send?phone={$phone}&text=" . urlencode($message);
 
-    // Generate the WhatsApp URL
-    $whatsappURL = "https://wa.me/$phone/?text=$encodedMessage";
+    if ($isAjax) {
+        echo json_encode([
+            'success' => true,
+            'message' => 'Order marked as delivered successfully.',
+            'whatsapp_url' => $whatsappURL
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 
-    // Output JavaScript to open WhatsApp in a new tab and redirect back to orders page
-    echo "<script>
-        // Open WhatsApp in a new tab
-        window.open('$whatsappURL', '_blank');
-        // Redirect back to orders page
-        window.location.href = 'orders.php';
-    </script>";
+    header("Location: {$whatsappURL}");
+    exit;
+
+} catch (Exception $e) {
+    error_log('mark_as_delivered.php error: ' . $e->getMessage());
+
+    if ($isAjax) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Server error while marking order as delivered.']);
+    } else {
+        redirect('orders.php');
+    }
     exit;
 }
 ?>
-

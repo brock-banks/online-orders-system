@@ -9,14 +9,10 @@ if (!isAdmin()) {
     die('Access denied. Admins only.');
 }
 
-// Determine admin_role for current user. We prefer a per-user admin_role column (if present in the session/user record).
-// If you haven't added admin_role to users, default to 'manager'.
 $adminRole = $_SESSION['user']['admin_role'] ?? ($_SESSION['user']['role'] === 'admin' ? 'manager' : 'user');
 
-// Default date range: last 30 days
 $endDate = $_GET['end_date'] ?? date('Y-m-d');
 $startDate = $_GET['start_date'] ?? date('Y-m-d', strtotime('-29 days', strtotime($endDate)));
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -27,120 +23,173 @@ $startDate = $_GET['start_date'] ?? date('Y-m-d', strtotime('-29 days', strtotim
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="admin_dashboard.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        .dashboard-subtitle {
+            color: #6c757d;
+            margin-bottom: 0;
+        }
+        .dashboard-filter-card {
+            border-radius: 16px;
+        }
+        .chart-card canvas {
+            max-height: 320px;
+        }
+        .mini-muted {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        .kpi-icon-box {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(13, 110, 253, 0.10);
+            color: #0d6efd;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .table-address {
+            max-width: 180px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .dashboard-alert {
+            display: none;
+        }
+    </style>
 </head>
 <body>
 <?php include 'header.php'; ?>
 
-<div class="container my-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="text-primary">Admin Dashboard</h2>
+<div class="container page-shell">
+    <div class="page-title-row">
         <div>
+            <h2 class="page-title text-primary">Admin Dashboard</h2>
+            <p class="dashboard-subtitle">Overview of orders, revenue, user activity, and delivery performance.</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
             <?php if ($adminRole === 'superadmin' || $adminRole === 'manager'): ?>
-                <a href="export_orders_csv.php?start_date=<?php echo htmlspecialchars($startDate); ?>&end_date=<?php echo htmlspecialchars($endDate); ?>" class="btn btn-success me-2">Export Orders CSV</a>
+                <a href="export_orders_csv.php?start_date=<?php echo htmlspecialchars($startDate); ?>&end_date=<?php echo htmlspecialchars($endDate); ?>" class="btn btn-success">Export Orders CSV</a>
             <?php endif; ?>
             <a href="view_orders.php" class="btn btn-outline-secondary">View Orders</a>
         </div>
     </div>
 
-    <!-- Filters -->
-    <div class="card mb-3">
+    <div id="dashboardError" class="alert alert-danger dashboard-alert"></div>
+
+    <div class="card app-card dashboard-filter-card section-gap">
         <div class="card-body">
-            <form id="filterForm" class="row g-2 align-items-end">
-                <div class="col-auto">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
                     <label class="form-label">Start Date</label>
                     <input type="date" id="start_date" name="start_date" class="form-control" value="<?php echo htmlspecialchars($startDate); ?>">
                 </div>
-                <div class="col-auto">
+                <div class="col-md-3">
                     <label class="form-label">End Date</label>
                     <input type="date" id="end_date" name="end_date" class="form-control" value="<?php echo htmlspecialchars($endDate); ?>">
                 </div>
-                <div class="col-auto">
-                    <label class="form-label d-block">&nbsp;</label>
-                    <button type="button" id="applyFilter" class="btn btn-primary">Apply</button>
+                <div class="col-md-2">
+                    <button type="button" id="applyFilter" class="btn btn-primary w-100">Apply</button>
                 </div>
-                <div class="col-auto">
-                    <label class="form-label d-block">&nbsp;</label>
-                    <div class="btn-group">
-                        <button type="button" class="btn btn-outline-secondary quick-range" data-days="7">Last 7</button>
-                        <button type="button" class="btn btn-outline-secondary quick-range" data-days="30">Last 30</button>
-                        <button type="button" class="btn btn-outline-secondary quick-range" data-days="90">Last 90</button>
+                <div class="col-md-2">
+                    <label class="form-label">Role</label>
+                    <div>
+                        <span class="badge bg-light text-dark border px-3 py-2"><?php echo htmlspecialchars($adminRole); ?></span>
                     </div>
                 </div>
-                <div class="col-auto">
-                    <label class="form-label">Role</label>
-                    <input class="form-control" readonly value="<?php echo htmlspecialchars($adminRole); ?>">
+                <div class="col-md-2">
+                    <label class="form-label">Quick Range</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm quick-range" data-days="7">7D</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm quick-range" data-days="30">30D</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm quick-range" data-days="90">90D</button>
+                    </div>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
 
-    <!-- Summary cards -->
-    <div id="summaryRow" class="row g-3 mb-3">
-        <!-- Filled by JS based on role -->
-    </div>
+    <div id="summaryRow" class="row g-3 section-gap"></div>
 
-    <!-- Charts -->
-    <div class="row gy-3">
+    <div class="row g-3">
         <div class="col-lg-8">
-            <div class="card">
-                <div class="card-header">Orders & Revenue</div>
+            <div class="card app-card chart-card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Orders & Revenue</span>
+                    <span class="mini-muted">Daily totals in selected range</span>
+                </div>
                 <div class="card-body">
-                    <canvas id="ordersRevenueChart" style="height:320px;"></canvas>
+                    <canvas id="ordersRevenueChart"></canvas>
                 </div>
             </div>
         </div>
 
         <div class="col-lg-4">
-            <div class="card mb-3">
-                <div class="card-header">Top Users (by orders)</div>
+            <div class="card app-card chart-card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Top Users</span>
+                    <span class="mini-muted">By order count</span>
+                </div>
                 <div class="card-body">
-                    <canvas id="topUsersChart" style="height:240px;"></canvas>
+                    <canvas id="topUsersChart"></canvas>
                 </div>
             </div>
 
-            <div class="card">
-                <div class="card-header">Hour-of-Day Orders</div>
+            <div class="card app-card chart-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Hour-of-Day Orders</span>
+                    <span class="mini-muted">Distribution by time</span>
+                </div>
                 <div class="card-body">
-                    <canvas id="hourOfDayChart" style="height:240px;"></canvas>
+                    <canvas id="hourOfDayChart"></canvas>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Funnel -->
-    <div class="row mt-3">
+    <div class="row g-3 mt-1">
         <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">Conversion Funnel (placed → delivered)</div>
+            <div class="card app-card chart-card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Conversion Funnel</span>
+                    <span class="mini-muted">Placed → Delivered</span>
+                </div>
                 <div class="card-body">
-                    <canvas id="funnelChart" style="height:200px;"></canvas>
+                    <canvas id="funnelChart" style="max-height:220px;"></canvas>
                     <div id="funnelStats" class="mt-3"></div>
                 </div>
             </div>
         </div>
 
-        <!-- Recent Orders: only for manager and superadmin -->
         <?php if ($adminRole === 'superadmin' || $adminRole === 'manager'): ?>
         <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">Recent Orders</div>
+            <div class="card app-card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Recent Orders</span>
+                    <span class="mini-muted">Latest 20 in range</span>
+                </div>
                 <div class="card-body">
-                    <div id="recentOrdersContainer" class="table-responsive">
-                        <table class="table table-striped" id="recentOrdersTable">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Invoice</th>
-                                    <th>User</th>
-                                    <th>Phone</th>
-                                    <th>Address</th>
-                                    <th>Price</th>
-                                    <th>Status</th>
-                                    <th>Date</th>
-                                </tr>
-                            </thead>
-                            <tbody id="recentOrdersBody"></tbody>
-                        </table>
+                    <div class="app-table-wrap">
+                        <div class="table-responsive">
+                            <table class="table app-table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Invoice</th>
+                                        <th>User</th>
+                                        <th>Phone</th>
+                                        <th>Address</th>
+                                        <th>Price</th>
+                                        <th>Status</th>
+                                        <th>Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recentOrdersBody"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -154,7 +203,15 @@ const dashboardUrl = 'dashboard_data.php';
 const adminRole = <?php echo json_encode($adminRole); ?>;
 
 function formatCurrency(v) {
-    return parseFloat(v).toFixed(2) + ' OMR';
+    return parseFloat(v || 0).toFixed(2) + ' OMR';
+}
+
+function badgeHtml(status) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'delivered') {
+        return '<span class="badge-status badge-delivered">Delivered</span>';
+    }
+    return '<span class="badge-status badge-pending">Pending</span>';
 }
 
 async function fetchDashboardData(startDate, endDate) {
@@ -167,86 +224,97 @@ async function fetchDashboardData(startDate, endDate) {
 function renderSummary(stats) {
     const row = document.getElementById('summaryRow');
 
-    // Role-based widgets: 
-    // superadmin: all cards
-    // manager: main KPIs (orders, revenue, delivered, pending)
-    // analyst: charts-only (show condensed KPIs)
+    const cards = [];
+
+    cards.push(`
+        <div class="col-md-3">
+            <div class="kpi-card">
+                <div class="kpi-icon-box">#</div>
+                <div class="kpi-label">Total Orders</div>
+                <div class="kpi-value">${stats.total_orders}</div>
+            </div>
+        </div>
+    `);
+
+    cards.push(`
+        <div class="col-md-3">
+            <div class="kpi-card">
+                <div class="kpi-icon-box">OMR</div>
+                <div class="kpi-label">Total Revenue</div>
+                <div class="kpi-value">${formatCurrency(stats.total_revenue)}</div>
+            </div>
+        </div>
+    `);
+
     if (adminRole === 'superadmin') {
-        row.innerHTML = `
-            <div class="col-md-3">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Total Orders</h6>
-                    <div class="fs-4 fw-bold">${stats.total_orders}</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Total Revenue</h6>
-                    <div class="fs-4 fw-bold">${formatCurrency(stats.total_revenue)}</div>
-                </div>
-            </div>
+        cards.push(`
             <div class="col-md-2">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Delivered</h6>
-                    <div class="fs-4 fw-bold text-success">${stats.delivered}</div>
+                <div class="kpi-card">
+                    <div class="kpi-icon-box">✓</div>
+                    <div class="kpi-label">Delivered</div>
+                    <div class="kpi-value text-success">${stats.delivered}</div>
                 </div>
             </div>
+        `);
+        cards.push(`
             <div class="col-md-2">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Pending</h6>
-                    <div class="fs-4 fw-bold text-warning">${stats.pending}</div>
+                <div class="kpi-card">
+                    <div class="kpi-icon-box">!</div>
+                    <div class="kpi-label">Pending</div>
+                    <div class="kpi-value text-warning">${stats.pending}</div>
                 </div>
             </div>
+        `);
+        cards.push(`
             <div class="col-md-2">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Total Users</h6>
-                    <div class="fs-4 fw-bold">${stats.total_users}</div>
+                <div class="kpi-card">
+                    <div class="kpi-icon-box">U</div>
+                    <div class="kpi-label">Total Users</div>
+                    <div class="kpi-value">${stats.total_users}</div>
                 </div>
             </div>
-        `;
+        `);
     } else if (adminRole === 'manager') {
-        row.innerHTML = `
-            <div class="col-md-4">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Total Orders</h6>
-                    <div class="fs-4 fw-bold">${stats.total_orders}</div>
+        cards.push(`
+            <div class="col-md-3">
+                <div class="kpi-card">
+                    <div class="kpi-icon-box">!</div>
+                    <div class="kpi-label">Pending</div>
+                    <div class="kpi-value text-warning">${stats.pending}</div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Total Revenue</h6>
-                    <div class="fs-4 fw-bold">${formatCurrency(stats.total_revenue)}</div>
+        `);
+        cards.push(`
+            <div class="col-md-3">
+                <div class="kpi-card">
+                    <div class="kpi-icon-box">✓</div>
+                    <div class="kpi-label">Delivered</div>
+                    <div class="kpi-value text-success">${stats.delivered}</div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Pending</h6>
-                    <div class="fs-4 fw-bold text-warning">${stats.pending}</div>
+        `);
+    } else {
+        cards.push(`
+            <div class="col-md-3">
+                <div class="kpi-card">
+                    <div class="kpi-icon-box">✓</div>
+                    <div class="kpi-label">Delivered</div>
+                    <div class="kpi-value text-success">${stats.delivered}</div>
                 </div>
             </div>
-        `;
-    } else { // analyst or others
-        row.innerHTML = `
-            <div class="col-md-4">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Total Orders</h6>
-                    <div class="fs-4 fw-bold">${stats.total_orders}</div>
+        `);
+        cards.push(`
+            <div class="col-md-3">
+                <div class="kpi-card">
+                    <div class="kpi-icon-box">!</div>
+                    <div class="kpi-label">Pending</div>
+                    <div class="kpi-value text-warning">${stats.pending}</div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Total Revenue</h6>
-                    <div class="fs-4 fw-bold">${formatCurrency(stats.total_revenue)}</div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card text-center shadow-sm p-3">
-                    <h6>Delivered</h6>
-                    <div class="fs-4 fw-bold text-success">${stats.delivered}</div>
-                </div>
-            </div>
-        `;
+        `);
     }
+
+    row.innerHTML = cards.join('');
 }
 
 let ordersRevenueChart = null;
@@ -269,7 +337,7 @@ function renderOrdersRevenueChart(labels, ordersData, revenueData) {
                     yAxisID: 'y1',
                     borderColor: '#198754',
                     backgroundColor: '#19875422',
-                    tension: 0.2,
+                    tension: 0.25,
                     fill: true
                 },
                 {
@@ -296,10 +364,10 @@ function renderTopUsersChart(labels, counts) {
     const ctx = document.getElementById('topUsersChart');
     if (topUsersChart) topUsersChart.destroy();
     topUsersChart = new Chart(ctx, {
-        type: 'pie',
+        type: 'doughnut',
         data: {
             labels,
-            datasets: [{ data: counts, backgroundColor: ['#0d6efd','#198754','#ffc107','#dc3545','#6f42c1'] }]
+            datasets: [{ data: counts, backgroundColor: ['#0d6efd','#198754','#ffc107','#dc3545','#6f42c1','#20c997','#fd7e14','#6610f2'] }]
         },
         options: { responsive: true }
     });
@@ -321,7 +389,6 @@ function renderHourOfDay(labels, counts) {
 function renderFunnel(funnel) {
     const ctx = document.getElementById('funnelChart');
     if (funnelChart) funnelChart.destroy();
-    // Represent funnel as horizontal bar (two bars): placed and delivered
     funnelChart = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -332,16 +399,49 @@ function renderFunnel(funnel) {
     });
 
     document.getElementById('funnelStats').innerHTML = `
-        <div><strong>Placed:</strong> ${funnel.placed}</div>
-        <div><strong>Delivered:</strong> ${funnel.delivered}</div>
-        <div><strong>Conversion:</strong> ${funnel.conversion_percent}%</div>
+        <div class="row g-2">
+            <div class="col-4">
+                <div class="border rounded p-2 text-center">
+                    <div class="mini-muted">Placed</div>
+                    <div class="fw-bold">${funnel.placed}</div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="border rounded p-2 text-center">
+                    <div class="mini-muted">Delivered</div>
+                    <div class="fw-bold">${funnel.delivered}</div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="border rounded p-2 text-center">
+                    <div class="mini-muted">Conversion</div>
+                    <div class="fw-bold">${funnel.conversion_percent}%</div>
+                </div>
+            </div>
+        </div>
     `;
 }
 
 function renderRecentOrders(tableRows) {
     const tbody = document.getElementById('recentOrdersBody');
     if (!tbody) return;
+
     tbody.innerHTML = '';
+
+    if (!tableRows || tableRows.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8">
+                    <div class="empty-state my-2">
+                        <div class="empty-state-title">No recent orders</div>
+                        <div>There are no orders in the selected range.</div>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
     tableRows.forEach(r => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -349,9 +449,9 @@ function renderRecentOrders(tableRows) {
             <td>${r.invoice_no}</td>
             <td>${r.username ?? r.user_id}</td>
             <td>${r.phone}</td>
-            <td>${r.address}</td>
-            <td>${parseFloat(r.price).toFixed(2)}</td>
-            <td>${r.status}</td>
+            <td class="table-address" title="${r.address}">${r.address}</td>
+            <td>${parseFloat(r.price || 0).toFixed(2)}</td>
+            <td>${badgeHtml(r.status)}</td>
             <td>${r.date}</td>
         `;
         tbody.appendChild(tr);
@@ -359,6 +459,10 @@ function renderRecentOrders(tableRows) {
 }
 
 async function loadAndRender(startDate, endDate) {
+    const errorBox = document.getElementById('dashboardError');
+    errorBox.style.display = 'none';
+    errorBox.textContent = '';
+
     try {
         const data = await fetchDashboardData(startDate, endDate);
         renderSummary(data.stats);
@@ -372,7 +476,8 @@ async function loadAndRender(startDate, endDate) {
         }
     } catch (err) {
         console.error(err);
-        alert('Failed to load dashboard data: ' + err.message);
+        errorBox.textContent = 'Failed to load dashboard data: ' + err.message;
+        errorBox.style.display = 'block';
     }
 }
 
@@ -395,7 +500,6 @@ document.querySelectorAll('.quick-range').forEach(btn => {
     });
 });
 
-// initial load
 loadAndRender(document.getElementById('start_date').value, document.getElementById('end_date').value);
 </script>
 

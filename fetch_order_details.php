@@ -1,24 +1,48 @@
 <?php
-require 'config.php';
-require 'functions.php';
+require_once 'config.php';
+require_once 'functions.php';
 
-// Check if 'id' is passed in the request
-if (isset($_GET['id'])) {
-    $orderId = $_GET['id'];
+header('Content-Type: application/json; charset=utf-8');
 
-    // Query the database to fetch the order details
-    $query = query("SELECT * FROM orders WHERE id = ?", [$orderId]);
-    $order = $query->fetch();
+if (!isLoggedIn()) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Access denied.']);
+    exit;
+}
 
-    if ($order) {
-        // Return the order details as JSON
-        echo json_encode($order);
-    } else {
-        // Return an error if the order is not found
+$orderId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+
+if ($orderId <= 0) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid order ID.']);
+    exit;
+}
+
+try {
+    $order = query("SELECT * FROM orders WHERE id = ? LIMIT 1", [$orderId])->fetch();
+
+    if (!$order) {
+        http_response_code(404);
         echo json_encode(['error' => 'Order not found.']);
+        exit;
     }
-} else {
-    // Return an error if 'id' is not provided
-    echo json_encode(['error' => 'Order ID not provided.']);
+
+    echo json_encode([
+        'id' => $order['id'],
+        'invoice_no' => $order['invoice_no'],
+        'details' => $order['details'],
+        'phone' => $order['phone'],
+        'address' => $order['address'],
+        'date' => $order['date'],
+        'delivered_by' => $order['delivered_by'] ?? '',
+        'status' => $order['status'] ?? 'pending'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+
+} catch (Exception $e) {
+    error_log('fetch_order_details.php error: ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['error' => 'Server error.']);
+    exit;
 }
 ?>

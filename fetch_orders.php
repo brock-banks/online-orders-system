@@ -1,74 +1,111 @@
 <?php
-require 'config.php';
-require 'functions.php';
+require_once 'config.php';
+require_once 'functions.php';
 
-$search = $_GET['search'] ?? '';
+$searchType = $_GET['search_type'] ?? '';
+$searchValue = trim($_GET['search_value'] ?? '');
 
-// Fetch orders based on the search query without filtering by user_id
-$query = query(
-    "SELECT * FROM orders WHERE 
-    (id LIKE ? OR invoice_no LIKE ? OR details LIKE ? OR phone LIKE ? OR address LIKE ? OR status LIKE ?)",
-    ["%$search%", "%$search%", "%$search%", "%$search%", "%$search%", "%$search%"]
-);
+$allowedTypes = ['invoice_no', 'phone', 'address'];
 
-$orders = $query->fetchAll();
+if ($searchValue === '' || !in_array($searchType, $allowedTypes, true)) {
+    echo "<tr>
+        <td colspan='8'>
+            <div class='empty-state my-3'>
+                <div class='empty-state-title'>No orders loaded</div>
+                <div>Select a valid search type and enter a value.</div>
+            </div>
+        </td>
+    </tr>";
+    exit;
+}
 
-if (count($orders) > 0) {
-    foreach ($orders as $order) {
-        // Define variables from the $order array
-        $invoiceNo = htmlspecialchars($order['invoice_no']);
-        $address = htmlspecialchars($order['address']);
-        $details = htmlspecialchars($order['details']);
-        $phone = htmlspecialchars($order['phone']);
+try {
+    $sql = "SELECT * FROM orders WHERE {$searchType} LIKE ? ORDER BY date DESC";
+    $orders = query($sql, ["%{$searchValue}%"])->fetchAll();
 
-        echo "<tr>
-            <td>" . htmlspecialchars($order['id']) . "</td>
-            <td>" . htmlspecialchars($order['user_id']) . "</td>
-            <td>" . $invoiceNo . "</td>
-            <td>" . $details . "</td>
-            <td>" . $phone . "</td>
-            <td>" . $address . "</td>
-            <td>" . htmlspecialchars($order['date']) . "</td>
-            <td>" . htmlspecialchars($order['delivered_by']) . "</td>
-            <td>" . ucfirst(htmlspecialchars($order['status'])) . "</td>
-            <td>
-                <button class='btn btn-secondary btn-sm editOrderBtn' 
-                        data-order-id='" . htmlspecialchars($order['id']) . "' 
-                        data-invoice-no='" . $invoiceNo . "'
-                        data-details='" . $details . "'
-                        data-phone='" . $phone . "'
-                        data-address='" . $address . "'
-                        data-date='" . htmlspecialchars($order['date']) . "'
-                        data-delivered-by='" . htmlspecialchars($order['delivered_by']) . "'>Edit</button>
-            </td>
-            <td>";
-        if ($order['status'] !== 'delivered') {
-            echo "<button class='btn btn-success btn-sm markAsDeliveredBtn' data-order-id='" . htmlspecialchars($order['id']) . "'>Mark as Delivered</button>";
-        } else {
-            echo "<span class='badge bg-success'>Delivered</span>";
+    if (count($orders) > 0) {
+        foreach ($orders as $order) {
+            $id = htmlspecialchars($order['id']);
+            $invoiceNo = htmlspecialchars($order['invoice_no'] ?? '');
+            $details = nl2br(htmlspecialchars($order['details'] ?? ''));
+            $phone = htmlspecialchars($order['phone'] ?? '');
+            $address = htmlspecialchars($order['address'] ?? '');
+            $date = htmlspecialchars($order['date'] ?? '');
+            $status = strtolower(trim($order['status'] ?? 'pending'));
+
+            $statusBadge = $status === 'delivered'
+                ? '<span class="badge-status badge-delivered">Delivered</span>'
+                : '<span class="badge-status badge-pending">Pending</span>';
+
+            $deliveredMessage = urlencode(
+                "مرحباً،\n"
+                . "تم استلام طلبك رقم#\n"
+                . ($order['invoice_no'] ?? '') . "\n"
+                . "تفاصيل الطلب\n"
+                . ($order['details'] ?? '') . "\n"
+                . "تم التسليم بنجاح.\n"
+                . "شكراً لثقتك بنا.\n"
+                . "تحياتنا،\n"
+                . "فريق [ALSHAHEEN ONLINE TEAM]"
+            );
+
+            $phoneForWhatsapp = preg_replace('/[^\d]/', '', (string)($order['phone'] ?? ''));
+            $deliveredMessageUrl = "https://api.whatsapp.com/send?phone=" . $phoneForWhatsapp . "&text=" . $deliveredMessage;
+
+            echo "<tr>
+                <td>{$id}</td>
+                <td>{$invoiceNo}</td>
+                <td class='details-cell'>{$details}</td>
+                <td>{$phone}</td>
+                <td>{$address}</td>
+                <td>{$date}</td>
+                <td>{$statusBadge}</td>
+                <td>
+                    <div class='table-actions'>
+                        <button class='btn btn-sm btn-outline-secondary editOrderBtn'
+                                data-order-id='{$id}'>
+                            Edit
+                        </button>";
+
+            if ($status !== 'delivered') {
+                echo "<button class='btn btn-sm btn-success markAsDeliveredBtn'
+                              data-order-id='{$id}'>
+                        Mark Delivered
+                      </button>";
+            } else {
+                echo "<button class='btn btn-sm btn-light' disabled>
+                        Delivered
+                      </button>";
+            }
+
+            echo "<a href='{$deliveredMessageUrl}'
+                      target='_blank'
+                      class='btn btn-sm btn-outline-success'>
+                      Send Delivered Msg
+                  </a>
+                  </div>
+                </td>
+            </tr>";
         }
-        echo "</td>
-            <td>
-                <a href='https://wa.me/" . $phone . "?text=" . urlencode("السلام عليكم ورحمة الله وبركاته 
-شكرًا لطلبك من [متجر الشاهين للوازم الرحلات والتخييم]!
-رقم طلبك هو: # $invoiceNo
-يرجى الاحتفاظ بهذا الرقم لإستلام
-مكان الاستلام $address
-تفاصيل الطلب
-$details
-لمزيد من المعلومات أو المتابعة، يمكنك مراسلتنا على 
-72202722
-93211636
-تحياتنا،
-فريق [ALSHAHEEN ONLINE TEAM]") . "' 
-                   target='_blank' 
-                   class='btn btn-success btn-sm'>
-                   Send WhatsApp
-                </a>
+    } else {
+        echo "<tr>
+            <td colspan='8'>
+                <div class='empty-state my-3'>
+                    <div class='empty-state-title'>No matching orders found</div>
+                    <div>Try a different value or search type.</div>
+                </div>
             </td>
         </tr>";
     }
-} else {
-    echo "<tr><td colspan='12' class='text-center'>No orders found.</td></tr>";
+} catch (Exception $e) {
+    error_log('fetch_orders.php error: ' . $e->getMessage());
+    echo "<tr>
+        <td colspan='8'>
+            <div class='empty-state my-3'>
+                <div class='empty-state-title'>Failed to load orders</div>
+                <div>Please try again.</div>
+            </div>
+        </td>
+    </tr>";
 }
 ?>
