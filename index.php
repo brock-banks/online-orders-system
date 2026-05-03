@@ -2,6 +2,16 @@
 require 'config.php';
 require 'functions.php';
 
+// Load settings for branding
+try {
+    $settingRows = query("SELECT key_name, value FROM settings")->fetchAll();
+    $settings = [];
+    foreach ($settingRows as $r) $settings[$r['key_name']] = $r['value'] ?? null;
+} catch (Exception $e) {
+    error_log('index.php: failed to load settings: ' . $e->getMessage());
+    $settings = [];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'];
     $password = $_POST['password'];
@@ -26,9 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
-    <!-- Include Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Login – <?php echo htmlspecialchars($settings['header_name'] ?? 'Order System'); ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
 <div class="container mt-5">
@@ -36,7 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="col-md-6">
             <div class="card shadow">
                 <div class="card-body">
-                    <h2 class="card-title text-center text-primary mb-4">Login</h2>
+                    <div class="text-center mb-4">
+                        <h2 class="text-primary fw-bold"><?php echo htmlspecialchars($settings['header_name'] ?? 'Order System'); ?></h2>
+                        <p class="text-muted mb-0">Sign in to continue</p>
+                    </div>
                     <?php if (isset($error)): ?>
                         <div class="alert alert-danger text-center"><?php echo $error; ?></div>
                     <?php endif; ?>
@@ -57,8 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </div>
 
-<!-- Include Bootstrap JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <?php
 include 'footer.php';
 ?>

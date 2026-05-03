@@ -15,22 +15,13 @@ if (!in_array($initialSearchType, ['invoice_no', 'phone', 'address'], true)) {
     $initialSearchType = 'invoice_no';
 }
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Orders</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .details-cell {
-            max-width: 260px;
-            white-space: normal;
-            word-break: break-word;
-        }
-    </style>
-</head>
-<body>
+<style>
+    .details-cell {
+        max-width: 260px;
+        white-space: normal;
+        word-break: break-word;
+    }
+</style>
 <div class="container page-shell">
     <div class="page-title-row">
         <div>
@@ -90,9 +81,9 @@ if (!in_array($initialSearchType, ['invoice_no', 'phone', 'address'], true)) {
                         <tbody id="ordersTable">
                             <tr>
                                 <td colspan="8">
-                                    <div class="empty-state my-3">
-                                        <div class="empty-state-title">No orders loaded</div>
-                                        <div>Select a search type, enter a value, and click Search.</div>
+                                    <div class="empty-state text-center my-4">
+                                        <div style="font-size:2.5rem;">📦</div>
+                                        <div class="empty-state-title fw-bold mt-2">Loading recent orders…</div>
                                     </div>
                                 </td>
                             </tr>
@@ -201,9 +192,29 @@ if (!in_array($initialSearchType, ['invoice_no', 'phone', 'address'], true)) {
 </div>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
+function loadDefaultOrders() {
+    $.ajax({
+        url: "fetch_orders.php",
+        type: "GET",
+        data: { default: 1 },
+        success: function(data) {
+            $("#ordersTable").html(data);
+        },
+        error: function() {
+            $("#ordersTable").html(`
+                <tr><td colspan="8">
+                    <div class="empty-state text-center my-4">
+                        <div style="font-size:2.5rem;">⚠️</div>
+                        <div class="empty-state-title fw-bold mt-2">Failed to load orders</div>
+                        <div class="text-muted small">Please refresh the page and try again.</div>
+                    </div>
+                </td></tr>`);
+        }
+    });
+}
+
 function loadOrders() {
     const searchType = document.getElementById('searchType').value;
     const searchValue = document.getElementById('searchValue').value.trim();
@@ -240,16 +251,7 @@ document.getElementById('searchBtn').addEventListener('click', loadOrders);
 document.getElementById('clearBtn').addEventListener('click', function() {
     document.getElementById('searchType').value = 'invoice_no';
     document.getElementById('searchValue').value = '';
-    document.getElementById('ordersTable').innerHTML = `
-        <tr>
-            <td colspan="8">
-                <div class="empty-state my-3">
-                    <div class="empty-state-title">No orders loaded</div>
-                    <div>Select a search type, enter a value, and click Search.</div>
-                </div>
-            </td>
-        </tr>
-    `;
+    loadDefaultOrders();
 });
 
 document.getElementById('searchValue').addEventListener('keydown', function(e) {
@@ -263,6 +265,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const initialValue = document.getElementById('searchValue').value.trim();
     if (initialValue !== '') {
         loadOrders();
+    } else {
+        loadDefaultOrders();
     }
 });
 
