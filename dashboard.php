@@ -35,18 +35,30 @@ $recentActivities = query("SELECT * FROM orders ORDER BY date DESC LIMIT 5")->fe
 $topDeliveryPersons = query("SELECT delivered_by, COUNT(*) AS total_deliveries 
                               FROM orders WHERE delivered_by IS NOT NULL 
                               GROUP BY delivered_by ORDER BY total_deliveries DESC LIMIT 5")->fetchAll();
+
+// Fetch delivery trends for the last 5 months (real data for chart)
+$deliveryTrendLabels = [];
+$deliveryTrendCounts = [];
+try {
+    $trendsResult = query(
+        "SELECT DATE_FORMAT(date, '%b %Y') AS month_label, COUNT(*) AS cnt
+         FROM orders
+         WHERE status = 'delivered' AND date >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
+         GROUP BY YEAR(date), MONTH(date)
+         ORDER BY YEAR(date), MONTH(date)"
+    )->fetchAll();
+    foreach ($trendsResult as $tr) {
+        $deliveryTrendLabels[] = $tr['month_label'];
+        $deliveryTrendCounts[] = (int)$tr['cnt'];
+    }
+} catch (Exception $e) {
+    error_log('Dashboard delivery trends error: ' . $e->getMessage());
+}
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <title>Admin Dashboard</title>
-    <!-- Include Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Include jQuery -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-</head>
-<body>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
 <div class="container mt-5">
     <h2 class="text-primary text-center mb-4">Admin Dashboard</h2>
     
@@ -85,6 +97,14 @@ $topDeliveryPersons = query("SELECT delivered_by, COUNT(*) AS total_deliveries
             </div>
         </div>
     </div>
+
+    <!-- Alerts (success/error feedback) -->
+    <?php if (isset($success)): ?>
+        <div class="alert alert-success text-center"><?php echo htmlspecialchars($success); ?></div>
+    <?php endif; ?>
+    <?php if (isset($error)): ?>
+        <div class="alert alert-danger text-center"><?php echo htmlspecialchars($error); ?></div>
+    <?php endif; ?>
 
 <!-- Filters Section -->
 <div class="card shadow mb-4">
@@ -185,173 +205,159 @@ $topDeliveryPersons = query("SELECT delivered_by, COUNT(*) AS total_deliveries
             </ul>
         </div>
     </div>
-</div>
 
-    <!-- Success and Error Messages -->
-    <?php if (isset($success)): ?>
-        <div class="alert alert-success text-center"><?php echo $success; ?></div>
-    <?php endif; ?>
-    <?php if (isset($error)): ?>
-        <div class="alert alert-danger text-center"><?php echo $error; ?></div>
-    <?php endif; ?>
-
-    
-
-    <!-- Add User Form -->
+    <!-- Admin Tools (collapsible) -->
     <div class="card shadow mb-4">
-        <div class="card-body">
-            <h3 class="card-title text-center">Add User</h3>
-            <form method="POST">
-                <div class="mb-3">
-                    <label for="username" class="form-label">Username</label>
-                    <input type="text" class="form-control" id="username" name="username" required>
-                </div>
-                <div class="mb-3">
-                    <label for="password" class="form-label">Password</label>
-                    <input type="password" class="form-control" id="password" name="password" required>
-                </div>
-                <div class="mb-3">
-                    <label for="role" class="form-label">Role</label>
-                    <select class="form-control" id="role" name="role">
-                        <option value="admin">Admin</option>
-                        <option value="user">User</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary w-100" name="add_user">Add User</button>
-            </form>
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">⚙️ Admin Tools</h5>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#adminToolsCollapse" aria-expanded="false" aria-controls="adminToolsCollapse">
+                Show / Hide
+            </button>
         </div>
-    </div>
-
-    <!-- Add Delivery Person Form -->
-    <div class="card shadow">
-        <div class="card-body">
-            <h3 class="card-title text-center">Add Delivery Person</h3>
-            <form method="POST">
-                <div class="mb-3">
-                    <label for="name" class="form-label">Name</label>
-                    <input type="text" class="form-control" id="name" name="name" required>
+        <div class="collapse" id="adminToolsCollapse">
+            <div class="card-body">
+                <div class="row g-4">
+                    <!-- Add User Form -->
+                    <div class="col-md-6">
+                        <h6 class="fw-bold mb-3">Add User</h6>
+                        <form method="POST">
+                            <div class="mb-3">
+                                <label for="username" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="username" name="username" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="password" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="password" name="password" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="role" class="form-label">Role</label>
+                                <select class="form-control" id="role" name="role">
+                                    <option value="admin">Admin</option>
+                                    <option value="user">User</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100" name="add_user">Add User</button>
+                        </form>
+                    </div>
+                    <!-- Add Delivery Person Form -->
+                    <div class="col-md-6">
+                        <h6 class="fw-bold mb-3">Add Delivery Person</h6>
+                        <form method="POST">
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Name</label>
+                                <input type="text" class="form-control" id="name" name="name" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100" name="add_delivery_person">Add Delivery Person</button>
+                        </form>
+                    </div>
                 </div>
-                <button type="submit" class="btn btn-primary w-100" name="add_delivery_person">Add Delivery Person</button>
-            </form>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Live Search JavaScript -->
+<!-- JavaScript -->
 <script>
-    
-    function loadOrders(search = "") {
+    // Single consolidated loadOrders function
+    function loadOrders(filters) {
+        // If called from live-search with a string, treat it as a text search across all fields
+        if (typeof filters === 'string') {
+            filters = { search: filters };
+        }
+        if (!filters) filters = {};
+
         $.ajax({
-            url: "fetch_orders.php", // Backend script for fetching orders
+            url: "fetch_orders_filter.php",
             type: "GET",
-            data: { search: search },
+            data: filters,
             success: function(data) {
-                $("#ordersTable").html(data); // Populate the orders table with fetched data
+                if (data && data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                if (!Array.isArray(data)) {
+                    $("#ordersTable").html(data);
+                    return;
+                }
+
+                let rows = "";
+                data.forEach(order => {
+                    rows += `
+                        <tr>
+                            <td>${order.id}</td>
+                            <td>${order.user_id}</td>
+                            <td>${order.details}</td>
+                            <td>${order.invoice_no}</td>
+                            <td>${order.phone}</td>
+                            <td>${order.address}</td>
+                            <td>${order.date}</td>
+                            <td>${order.delivered_by ?? ''}</td>
+                            <td>${order.status}</td>
+                        </tr>
+                    `;
+                });
+
+                if (rows === "") {
+                    rows = `<tr><td colspan="9" class="text-center text-muted py-3">No orders match the current filters.</td></tr>`;
+                }
+
+                $("#ordersTable").html(rows);
             },
-            error: function() {
+            error: function(xhr, status, error) {
+                console.error("Error fetching orders:", error);
                 alert("Failed to fetch orders. Please try again.");
             }
         });
     }
 
-    // Load all orders on page load
+    // Load all orders on page load with no filters
     loadOrders();
 
-    // Add event listener for live search
+    // Live search
     $("#searchOrders").on("input", function() {
-        const searchValue = $(this).val();
-        loadOrders(searchValue); // Fetch and display filtered orders
+        loadOrders({ search: $(this).val() });
     });
-</script>
-<script>
-     // Order Status Pie Chart
- const ctx1 = document.getElementById('orderStatusChart').getContext('2d');
-    const orderStatusChart = new Chart(ctx1, {
+
+    // Apply filters on button click
+    $("#applyFilters").on("click", function () {
+        const filters = {
+            status: $("#status").val(),
+            deliveredBy: $("#deliveredBy").val(),
+            dateFrom: $("#dateFrom").val(),
+            dateTo: $("#dateTo").val()
+        };
+        loadOrders(filters);
+    });
+
+    // Charts
+    const ctx1 = document.getElementById('orderStatusChart').getContext('2d');
+    new Chart(ctx1, {
         type: 'pie',
         data: {
             labels: ['Delivered', 'Pending'],
             datasets: [{
-                data: [<?php echo $deliveredOrders; ?>, <?php echo $pendingOrders; ?>],
+                data: [<?php echo (int)$deliveredOrders; ?>, <?php echo (int)$pendingOrders; ?>],
                 backgroundColor: ['#28a745', '#ffc107']
             }]
         }
     });
 
-    // Delivery Trends Line Chart
     const ctx2 = document.getElementById('deliveryTrendsChart').getContext('2d');
-    const deliveryTrendsChart = new Chart(ctx2, {
+    new Chart(ctx2, {
         type: 'line',
         data: {
-            labels: ['January', 'February', 'March', 'April', 'May'], // Example months
+            labels: <?php echo json_encode($deliveryTrendLabels); ?>,
             datasets: [{
                 label: 'Delivered Orders',
-                data: [10, 15, 20, 25, 30], // Example data
+                data: <?php echo json_encode($deliveryTrendCounts); ?>,
                 borderColor: '#007bff',
                 fill: false
             }]
         }
     });
-
 </script>
 
-<script>
-    function loadOrders(filters = {}) {
-    console.log("Loading filtered orders with:", filters); // Debugging log
-    
-    $.ajax({
-        url: "fetch_orders_filter.php", // New backend script for filtering orders
-        type: "GET",
-        data: filters,
-        success: function(data) {
-            if (data.error) {
-                alert(data.error); // Display error message if returned
-                return;
-            }
-
-            let rows = "";
-            data.forEach(order => {
-                rows += `
-                    <tr>
-                        <td>${order.id}</td>
-                        <td>${order.user_id}</td>
-                        <td>${order.details}</td>
-                        <td>${order.invoice_no}</td>
-                        <td>${order.phone}</td>
-                        <td>${order.address}</td>
-                        <td>${order.date}</td>
-                        <td>${order.delivered_by}</td>
-                        <td>${order.status}</td>
-                    </tr>
-                `;
-            });
-
-            $("#ordersTable").html(rows); // Populate the orders table with fetched data
-        },
-        error: function(xhr, status, error) {
-            console.error("Error fetching filtered orders:", error);
-            alert("Failed to fetch orders. Please try again.");
-        }
-    });
-}
-
-// Apply filters on button click
-$("#applyFilters").on("click", function () {
-    const filters = {
-        status: $("#status").val(),
-        deliveredBy: $("#deliveredBy").val(),
-        dateFrom: $("#dateFrom").val(),
-        dateTo: $("#dateTo").val()
-    };
-
-    loadOrders(filters); // Load orders with filters
-});
-
-// Load all orders on page load with no filters
-loadOrders();
-</script>
-
-<!-- Include Bootstrap JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 <?php
 include 'footer.php';
 ?>

@@ -167,14 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 ?>
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Place Order</title>
-
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+<?php include 'header.php'; ?>
 <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
 
 <style>
@@ -263,7 +256,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     gap: .5rem;
 }
 .page-shell{
-    margin-bottom: 10rem;
+    margin-bottom: 2rem;
 }
 
 @media (min-width: 992px) {
@@ -302,9 +295,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 </style>
-</head>
-<body>
-<?php include 'header.php'; ?>
 
 <div class="container page-shell place-order-page">
     <div class="page-title-row">
@@ -374,7 +364,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             <div>
                                 <label class="form-label">Order Details</label>
-                                <textarea id="details" name="details" rows="7" class="form-control" required><?php echo isset($details) ? htmlspecialchars($details) : ''; ?></textarea>
+                                <textarea id="details" name="details" rows="3" class="form-control" required><?php echo isset($details) ? htmlspecialchars($details) : ''; ?></textarea>
                                 <div class="compact-help mt-2">This field is auto-updated from added items, but you can still edit it manually if needed.</div>
                             </div>
                         </div>
@@ -410,7 +400,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             <div class="mb-3">
                                 <label class="form-label">Address</label>
-                                <textarea id="address" name="address" rows="7" class="form-control" required><?php echo isset($address) ? htmlspecialchars($address) : ''; ?></textarea>
+                                <textarea id="address" name="address" rows="3" class="form-control" required><?php echo isset($address) ? htmlspecialchars($address) : ''; ?></textarea>
                             </div>
 
                             <div class="mb-0">
@@ -482,9 +472,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="alert alert-warning">Receipt data not available.</div>
                     <?php endif; ?>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" id="printAndSendBtn" class="btn btn-success">Print & Send WhatsApp</button>
-                    <button type="button" id="saveAndSendBtn" class="btn btn-primary">Save & Send WhatsApp</button>
+                <div class="modal-footer flex-column align-items-stretch gap-2">
+                    <div class="d-flex gap-2">
+                        <button type="button" id="printAndSendBtn" class="btn btn-success flex-fill">Print Label &amp; WhatsApp</button>
+                        <button type="button" id="saveAndSendBtn" class="btn btn-primary flex-fill">Send via WhatsApp</button>
+                    </div>
+                    <small class="text-muted text-center">Print Label opens the shipping label for printing, then opens WhatsApp.</small>
                     <a href="orders.php" class="btn btn-outline-secondary">Back to Orders</a>
                 </div>
             </div>
@@ -492,7 +485,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
 
 <script>

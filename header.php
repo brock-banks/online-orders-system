@@ -119,15 +119,15 @@ echo $rootCssVars;
       <ul class="navbar-nav me-auto mb-2 mb-md-0 align-items-center">
         <li class="nav-item"><a class="nav-link" href="orders.php">Orders</a></li>
         <li class="nav-item"><a class="nav-link" href="place_order.php">Place Order</a></li>
-        <li class="nav-item"><a class="nav-link" href="reprint_receipt.php"> Receipt</a></li>
+        <li class="nav-item"><a class="nav-link" href="reprint_receipt.php"> Reprint Receipt</a></li>
 
         <?php if (isAdmin()): ?>
           <li class="nav-item dropdown">
             <a class="nav-link dropdown-toggle" href="#" id="manageDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">Manage</a>
             <ul class="dropdown-menu" aria-labelledby="manageDropdown">
               <li><a class="dropdown-item" href="items.php">Products</a></li>
-              <li><a class="dropdown-item" href="map.php">Places</a></li>
-              <li><a class="dropdown-item" href="add_receive.php">Receives</a></li>
+              <li><a class="dropdown-item" href="map.php">Locations</a></li>
+              <li><a class="dropdown-item" href="add_receive.php">Received Items</a></li>
             </ul>
           </li>
 
@@ -155,7 +155,9 @@ echo $rootCssVars;
         <div class="nav-item dropdown">
           <a class="nav-link position-relative <?php echo ($pendingCount>0) ? 'text-danger' : 'text-secondary'; ?>" href="#" id="notifDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="color:inherit;">
             🔔
-            <span id="notification-count" class="badge <?php echo $pendingCount>0 ? 'bg-danger' : 'bg-secondary'; ?> badge-notify"><?php echo $pendingCount; ?></span>
+            <?php if ($pendingCount > 0): ?>
+            <span id="notification-count" class="badge bg-danger badge-notify"><?php echo $pendingCount; ?></span>
+            <?php endif; ?>
           </a>
           <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="notifDropdown">
             <?php if ($pendingCount > 0): ?>
