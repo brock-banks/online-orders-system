@@ -31,13 +31,20 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$orderId = (int)($_POST['order_id'] ?? 0);
-$deliveredBy = trim($_POST['delivered_by'] ?? '');
+ensureAssignedToColumn();
 
-if ($orderId <= 0 || $deliveredBy === '') {
+$orderId        = (int)($_POST['order_id'] ?? 0);
+$deliveredBy    = trim($_POST['delivered_by'] ?? '');
+$useAssignment  = !empty($_POST['use_assignment']);
+$templateKey    = (string)($_POST['template_key'] ?? 'template_delivered');
+if (!in_array($templateKey, ['template_place_order', 'template_delivered'], true)) {
+    $templateKey = 'template_delivered';
+}
+
+if ($orderId <= 0) {
     if ($isAjax) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Order ID and delivery person are required.']);
+        echo json_encode(['success' => false, 'message' => 'Order ID is required.']);
     } else {
         redirect('orders.php');
     }
@@ -46,6 +53,26 @@ if ($orderId <= 0 || $deliveredBy === '') {
 
 try {
     $order = query("SELECT * FROM orders WHERE id = ? LIMIT 1", [$orderId])->fetch();
+
+    // One-click flow: pull courier from the pre-assignment stored on the order.
+    if ($useAssignment && $order) {
+        $deliveredBy = trim((string)($order['assigned_to'] ?? ''));
+    }
+
+    if ($deliveredBy === '') {
+        if ($isAjax) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => $useAssignment
+                    ? 'This order has no assigned courier — assign one first.'
+                    : 'Delivery person is required.'
+            ]);
+        } else {
+            redirect('orders.php');
+        }
+        exit;
+    }
 
     if (!$order) {
         if ($isAjax) {
@@ -62,20 +89,28 @@ try {
         [$deliveredBy, $orderId]
     );
 
-    $message = "مرحباً،\n"
-        . "تم استلام طلبك رقم#\n"
-        . ($order['invoice_no'] ?? '') . "\n"
-        . "تفاصيل الطلب\n"
-        . ($order['details'] ?? '') . "\n"
-        . "تم التسليم عن طريق\n"
-        . $deliveredBy . "\n"
-        . "، شكرًا لثقتك بنا!\n"
-        . "سعداء بخدمتك، ونتمنى لك تجربة تسوّق رائعة.\n"
-        . "تحياتنا،\n"
-        . "فريق [ALSHAHEEN ONLINE TEAM]";
+    $username = '';
+    try {
+        $u = query("SELECT username FROM users WHERE id = ? LIMIT 1", [(int)($order['user_id'] ?? 0)])->fetch();
+        if ($u && isset($u['username'])) $username = $u['username'];
+    } catch (Exception $e) {
+        $username = '';
+    }
+
+    $template = getMessageTemplate($templateKey);
+    $message = renderMessageTemplate($template, [
+        'invoice_no'   => $order['invoice_no'] ?? '',
+        'phone'        => $order['phone'] ?? '',
+        'address'      => $order['address'] ?? '',
+        'details'      => $order['details'] ?? '',
+        'price'        => $order['price'] ?? '',
+        'delivered_by' => $deliveredBy,
+        'date'         => $order['date'] ?? '',
+        'username'     => $username,
+    ]);
 
     $phone = preg_replace('/[^\d]/', '', (string)($order['phone'] ?? ''));
-    $whatsappURL = "https://api.whatsapp.com/send?phone={$phone}&text=" . urlencode($message);
+    $whatsappURL = "https://api.whatsapp.com/send?phone={$phone}&text=" . rawurlencode($message);
 
     if ($isAjax) {
         echo json_encode([

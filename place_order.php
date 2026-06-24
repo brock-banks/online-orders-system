@@ -6,6 +6,16 @@ if (!isLoggedIn()) {
     redirect('index.php');
 }
 
+$hasAssignedCol = ensureAssignedToColumn();
+
+$deliveryPeople = [];
+try {
+    $deliveryPeople = query("SELECT id, name FROM delivery_people ORDER BY name ASC")->fetchAll();
+} catch (Exception $e) {
+    error_log('place_order.php: failed to load delivery_people: ' . $e->getMessage());
+    $deliveryPeople = [];
+}
+
 $showReceipt = false;
 $receiptOrder = null;
 $receiptError = null;
@@ -52,6 +62,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $price = $_POST['price'] ?? 0;
     $selectedUserId = (int)($_POST['selected_user_id'] ?? ($_SESSION['user']['id'] ?? 0));
     $selectedPlaceId = $_POST['place_id'] ?? '';
+    $assignedTo = trim($_POST['assigned_to'] ?? '');
+    if ($assignedTo !== '') {
+        $exists = query("SELECT 1 FROM delivery_people WHERE name = ? LIMIT 1", [$assignedTo])->fetch();
+        if (!$exists) {
+            $assignedTo = '';
+        }
+    }
 
     if (!empty($selectedPlaceId)) {
         try {
@@ -82,10 +99,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
             }
 
-            query(
-                "INSERT INTO orders (user_id, details, invoice_no, phone, address, price) VALUES (?, ?, ?, ?, ?, ?)",
-                [$selectedUserId, $details, $invoiceNo, $phone, $address, $price]
-            );
+            if ($hasAssignedCol) {
+                query(
+                    "INSERT INTO orders (user_id, details, invoice_no, phone, address, price, assigned_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [$selectedUserId, $details, $invoiceNo, $phone, $address, $price, $assignedTo !== '' ? $assignedTo : null]
+                );
+            } else {
+                query(
+                    "INSERT INTO orders (user_id, details, invoice_no, phone, address, price) VALUES (?, ?, ?, ?, ?, ?)",
+                    [$selectedUserId, $details, $invoiceNo, $phone, $address, $price]
+                );
+            }
 
             $orderId = null;
             if (isset($pdo) && $pdo instanceof PDO) {
@@ -129,13 +153,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $showReceipt = true;
 
-                $message = "السلام عليكم ورحمة الله وبركاته\n"
-                    . "شكرًا لطلبك من [متجر الشاهين للوازم الرحلات والتخييم]!\n"
-                    . "رقم طلبك هو: # {$invoiceNo}\n"
-                    . "مكان الاستلام: {$address}\n"
-                    . "تفاصيل الطلب:\n{$details}\n\n"
-                    . "لمزيد من المعلومات أو المتابعة، يمكنك مراسلتنا على\n"
-                    . "72202722\n93211636\n\nتحياتنا،\nفريق [ALSHAHEEN ONLINE TEAM]";
+                $template = getMessageTemplate('template_place_order');
+                $message = renderMessageTemplate($template, [
+                    'invoice_no'   => $invoiceNo,
+                    'phone'        => $phone,
+                    'address'      => $address,
+                    'details'      => $details,
+                    'price'        => $price,
+                    'delivered_by' => '',
+                    'date'         => $receiptOrder['date'] ?? '',
+                    'username'     => $receiptUser['username'] ?? '',
+                ]);
 
                 $encodedMessage = rawurlencode($message);
                 $phoneForUrl = str_replace(' ', '', $phoneForUrl);
@@ -171,73 +199,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
 
 <style>
-   
-.place-order-page {
-    min-height: calc(100vh - 140px);
-    display: flex;
-    flex-direction: column;
-    
-}
-
-.place-order-grid {
-    flex: 1;
-    min-height: 0;
-}
-
-.place-order-col {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    min-height: 0;
-}
-
-.vh-card {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
-}
-
-.vh-card-fill {
-    flex: 1;
-}
-
-.vh-card .card-body {
-    overflow: auto;
-    min-height: 0;
-}
-
-.action-card .card-body {
-    overflow: visible;
-}
+.page-shell { margin-bottom: 2rem; }
 
 .item-code-group {
     display: flex;
-    gap: 10px;
-    align-items: center;
+    gap: .5rem;
 }
-
-.item-code-group .code-input {
-    flex: 1;
-}
-
-.item-code-group .qty-input {
-    width: 110px;
-}
+.item-code-group .code-input { flex: 1; }
+.item-code-group .qty-input { width: 90px; }
 
 .order-line-item {
     display: flex;
     justify-content: space-between;
-    align-items: start;
+    align-items: center;
     gap: 10px;
-    padding: 10px 12px;
+    padding: 8px 12px;
     border: 1px solid #e9ecef;
-    border-radius: 10px;
+    border-radius: 8px;
     background: #fff;
-}
-
-.order-line-meta {
-    flex: 1;
 }
 
 .order-lines-wrap {
@@ -245,78 +224,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     overflow: auto;
 }
 
-.compact-help {
-    font-size: 0.84rem;
-    color: #6c757d;
-}
-
 .quick-place-wrap {
     display: flex;
     flex-wrap: wrap;
-    gap: .5rem;
-}
-.page-shell{
-    margin-bottom: 2rem;
-}
-
-@media (min-width: 992px) {
-    .place-order-grid {
-        max-height: calc(100vh - 320px);
-    }
-}
-
-@media (max-width: 991.98px) {
-    .place-order-page {
-        min-height: auto;
-        padding-bottom: 2rem;
-    }
-
-    .place-order-grid {
-        max-height: none;
-    }
-
-    .vh-card {
-        min-height: auto;
-    }
-
-    .vh-card .card-body {
-        overflow: visible;
-    }
+    gap: .4rem;
+    margin-top: .25rem;
 }
 
 @media (max-width: 576px) {
-    .item-code-group {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .item-code-group .qty-input {
-        width: 100%;
-    }
+    .item-code-group { flex-direction: column; }
+    .item-code-group .qty-input { width: 100%; }
 }
 </style>
 
-<div class="container page-shell place-order-page">
-    <div class="page-title-row">
-        <div>
-            <h2 class="page-title text-primary">Place Order</h2>
-            <p class="page-subtitle">Create and send an order quickly from one workspace.</p>
-        </div>
-    </div>
+<div class="container page-shell">
+    <h2 class="page-title text-primary mb-3">Place Order</h2>
 
     <?php if (!empty($receiptError)): ?>
         <div class="alert alert-danger"><?php echo htmlspecialchars($receiptError); ?></div>
     <?php endif; ?>
 
-    <form id="placeOrderForm" method="POST" autocomplete="off" class="place-order-grid">
-        <div class="row g-4 h-100">
+    <form id="placeOrderForm" method="POST" autocomplete="off">
+        <div class="row g-3">
             <div class="col-lg-7">
-                <div class="place-order-col h-100">
-                    <div class="card app-card vh-card">
-                        <div class="card-header">Order Information</div>
-                        <div class="card-body">
-                            <div class="mb-3">
-                                <label class="form-label">Select User</label>
+                <div class="card app-card mb-3">
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">Customer</label>
                                 <select id="selected_user_id" name="selected_user_id" class="form-select" required>
                                     <option value="">-- Select a user --</option>
                                     <?php foreach ($users as $u): ?>
@@ -326,100 +261,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <div class="compact-help mt-2">Choose the customer for this order.</div>
                             </div>
-
-                            <div class="row">
-                                <div class="col-md-6 mb-3 mb-md-0">
-                                    <label class="form-label">Invoice Number</label>
-                                    <input id="invoice_no" name="invoice_no" class="form-control" required value="<?php echo isset($invoiceNo) ? htmlspecialchars($invoiceNo) : ''; ?>">
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Phone</label>
-                                    <input id="phone" name="phone" class="form-control" required value="<?php echo isset($phone) ? htmlspecialchars($phone) : '+968'; ?>">
-                                </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Invoice #</label>
+                                <input id="invoice_no" name="invoice_no" class="form-control" required value="<?php echo isset($invoiceNo) ? htmlspecialchars($invoiceNo) : ''; ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Phone</label>
+                                <input id="phone" name="phone" class="form-control" required value="<?php echo isset($phone) ? htmlspecialchars($phone) : '+968'; ?>">
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <div class="card app-card vh-card vh-card-fill">
-                        <div class="card-header">Order Items</div>
-                        <div class="card-body">
-                            <div class="mb-3">
-                                <label class="form-label">Add Item by Code</label>
-                                <div class="item-code-group">
-                                    <input id="item_code_input" type="text" class="form-control code-input" placeholder="Item code (e.g. ABC123)">
-                                    <input id="item_qty_input" type="number" class="form-control qty-input" value="1" min="1">
-                                    <button type="button" id="addItemBtn" class="btn btn-outline-primary">Add Item</button>
-                                </div>
-                                <div class="compact-help mt-2">Enter an item code and quantity, then click Add Item.</div>
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Added Items</label>
-                                <div id="orderLinesList" class="order-lines-wrap d-grid gap-2">
-                                    <div class="text-muted small" id="noItemsText">No items added yet.</div>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label class="form-label">Order Details</label>
-                                <textarea id="details" name="details" rows="3" class="form-control" required><?php echo isset($details) ? htmlspecialchars($details) : ''; ?></textarea>
-                                <div class="compact-help mt-2">This field is auto-updated from added items, but you can still edit it manually if needed.</div>
-                            </div>
+                <div class="card app-card">
+                    <div class="card-body">
+                        <label class="form-label">Items</label>
+                        <div class="item-code-group mb-2">
+                            <input id="item_code_input" type="text" class="form-control code-input" placeholder="Item code">
+                            <input id="item_qty_input" type="number" class="form-control qty-input" value="1" min="1" aria-label="Quantity">
+                            <button type="button" id="addItemBtn" class="btn btn-outline-primary">Add</button>
                         </div>
+
+                        <div id="orderLinesList" class="order-lines-wrap d-grid gap-2 mb-3">
+                            <div class="text-muted small" id="noItemsText">No items added yet.</div>
+                        </div>
+
+                        <label class="form-label">Details</label>
+                        <textarea id="details" name="details" rows="3" class="form-control" required><?php echo isset($details) ? htmlspecialchars($details) : ''; ?></textarea>
                     </div>
                 </div>
             </div>
 
             <div class="col-lg-5">
-                <div class="place-order-col h-100">
-                    <div class="card app-card vh-card vh-card-fill">
-                        <div class="card-header">Delivery & Pricing</div>
-                        <div class="card-body">
-                            <div class="mb-3">
-                                <label class="form-label">Place (optional)</label>
-                                <select id="place_id" name="place_id" class="form-select">
-                                    <option value="">-- Select a place --</option>
-                                    <?php foreach ($places as $p): ?>
-                                        <option value="<?php echo (int)$p['PlaceID']; ?>"><?php echo htmlspecialchars($p['PlaceName']); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <div class="compact-help mt-2">Selecting a place will autofill the address automatically.</div>
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Quick Place Buttons</label>
-                                <div class="quick-place-wrap">
-                                    <button type="button" class="btn btn-outline-primary quick-place-btn" data-place="Shop1 - قرب نقليات الجيش ">Shop1</button>
-                                    <button type="button" class="btn btn-outline-primary quick-place-btn" data-place="Shop2 - المعبيلة السابعة">Shop2</button>
-                                    <button type="button" class="btn btn-outline-primary quick-place-btn" data-place="Shop3 - السويق">Shop3</button>
-                                    
-                                </div>
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Address</label>
-                                <textarea id="address" name="address" rows="3" class="form-control" required><?php echo isset($address) ? htmlspecialchars($address) : ''; ?></textarea>
-                            </div>
-
-                            <div class="mb-0">
-                                <label class="form-label">Price</label>
-                                <input id="price" name="price" type="number" step="0.01" class="form-control" value="<?php echo isset($price) ? htmlspecialchars($price) : '0'; ?>" min="0" required>
+                <div class="card app-card">
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Place</label>
+                            <select id="place_id" name="place_id" class="form-select">
+                                <option value="">-- Select a place --</option>
+                                <?php foreach ($places as $p): ?>
+                                    <option value="<?php echo (int)$p['PlaceID']; ?>"><?php echo htmlspecialchars($p['PlaceName']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="quick-place-wrap">
+                                <button type="button" class="btn btn-sm btn-outline-secondary quick-place-btn" data-place="Shop1 - قرب نقليات الجيش ">Shop1</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary quick-place-btn" data-place="Shop2 - المعبيلة السابعة">Shop2</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary quick-place-btn" data-place="Shop3 - السويق">Shop3</button>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="card app-card action-card">
-                        <div class="card-header">Actions</div>
-                        <div class="card-body">
-                            <div class="d-grid">
-                                <button type="submit" id="placeOrderSubmitBtn" class="btn btn-primary btn-lg">Place Order</button>
-                            </div>
-                            <div class="compact-help mt-3">
-                                Review the information, then place the order and send the receipt through WhatsApp.
-                            </div>
+                        <div class="mb-3">
+                            <label class="form-label">Address</label>
+                            <textarea id="address" name="address" rows="3" class="form-control" required><?php echo isset($address) ? htmlspecialchars($address) : ''; ?></textarea>
                         </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Price</label>
+                            <input id="price" name="price" type="number" step="0.01" class="form-control" value="<?php echo isset($price) ? htmlspecialchars($price) : '0'; ?>" min="0" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="assigned_to">Assign to courier <span class="text-muted small">(optional)</span></label>
+                            <select id="assigned_to" name="assigned_to" class="form-select">
+                                <option value="">— Unassigned —</option>
+                                <?php foreach ($deliveryPeople as $dp): ?>
+                                    <option value="<?php echo htmlspecialchars($dp['name']); ?>"
+                                        <?php echo (isset($assignedTo) && $assignedTo === $dp['name']) ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($dp['name']); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-text">Pre-assigning lets you mark this order delivered in one click later.</div>
+                        </div>
+
+                        <button type="submit" id="placeOrderSubmitBtn" class="btn btn-primary btn-lg w-100">Place Order</button>
                     </div>
                 </div>
             </div>

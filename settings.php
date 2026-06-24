@@ -188,6 +188,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        if (isset($_POST['templates_submit'])) {
+            $placeOrderTpl = (string)($_POST['template_place_order'] ?? '');
+            $deliveredTpl = (string)($_POST['template_delivered'] ?? '');
+
+            saveSetting('template_place_order', $placeOrderTpl);
+            saveSetting('template_delivered', $deliveredTpl);
+
+            flash('success', 'Message templates updated.');
+            header('Location: settings.php#templates-pane');
+            exit;
+        }
+
         if (isset($_POST['export_settings'])) {
             $rows = query("SELECT key_name, value FROM settings")->fetchAll();
             $export = [];
@@ -244,6 +256,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        if (isset($_POST['add_delivery_person'])) {
+            $name = trim($_POST['dp_name'] ?? '');
+            if ($name === '') {
+                throw new RuntimeException('Delivery person name cannot be empty.');
+            }
+            if (mb_strlen($name) > 100) {
+                throw new RuntimeException('Name must be 100 characters or fewer.');
+            }
+            $dup = query("SELECT id FROM delivery_people WHERE name = ? LIMIT 1", [$name])->fetch();
+            if ($dup) {
+                throw new RuntimeException("A delivery person named '{$name}' already exists.");
+            }
+            query("INSERT INTO delivery_people (name) VALUES (?)", [$name]);
+            flash('success', "Delivery person '{$name}' added.");
+            header('Location: settings.php#delivery-people-pane');
+            exit;
+        }
+
+        if (isset($_POST['rename_delivery_person'])) {
+            $id = (int)($_POST['dp_id'] ?? 0);
+            $newName = trim($_POST['dp_name'] ?? '');
+            if ($id <= 0) {
+                throw new RuntimeException('Invalid delivery person.');
+            }
+            if ($newName === '') {
+                throw new RuntimeException('Delivery person name cannot be empty.');
+            }
+            if (mb_strlen($newName) > 100) {
+                throw new RuntimeException('Name must be 100 characters or fewer.');
+            }
+            $row = query("SELECT name FROM delivery_people WHERE id = ? LIMIT 1", [$id])->fetch();
+            if (!$row) {
+                throw new RuntimeException('Delivery person not found.');
+            }
+            $oldName = $row['name'];
+            if ($oldName === $newName) {
+                flash('info', 'No changes — name is the same.');
+                header('Location: settings.php#delivery-people-pane');
+                exit;
+            }
+            $dup = query("SELECT id FROM delivery_people WHERE name = ? AND id <> ? LIMIT 1", [$newName, $id])->fetch();
+            if ($dup) {
+                throw new RuntimeException("A delivery person named '{$newName}' already exists.");
+            }
+            query("UPDATE delivery_people SET name = ? WHERE id = ?", [$newName, $id]);
+            // Cascade rename to historical orders so reports stay consistent.
+            query("UPDATE orders SET delivered_by = ? WHERE delivered_by = ?", [$newName, $oldName]);
+            try {
+                query("UPDATE archived_orders SET delivered_by = ? WHERE delivered_by = ?", [$newName, $oldName]);
+            } catch (Exception $e) {
+                // archived_orders table may not exist; ignore.
+            }
+            flash('success', "Renamed '{$oldName}' to '{$newName}'.");
+            header('Location: settings.php#delivery-people-pane');
+            exit;
+        }
+
+        if (isset($_POST['delete_delivery_person'])) {
+            $id = (int)($_POST['dp_id'] ?? 0);
+            if ($id <= 0) {
+                throw new RuntimeException('Invalid delivery person.');
+            }
+            $row = query("SELECT name FROM delivery_people WHERE id = ? LIMIT 1", [$id])->fetch();
+            if (!$row) {
+                throw new RuntimeException('Delivery person not found.');
+            }
+            query("DELETE FROM delivery_people WHERE id = ?", [$id]);
+            flash('success', "Removed '{$row['name']}' from the delivery people list.");
+            header('Location: settings.php#delivery-people-pane');
+            exit;
+        }
+
         if (isset($_POST['create_user'])) {
             $username = trim($_POST['new_username'] ?? '');
             $password = $_POST['new_password'] ?? '';
@@ -295,6 +379,14 @@ foreach ($settingsRows as $r) {
     $settings[$r['key_name']] = $r['value'];
 }
 $footerInfo = query("SELECT * FROM footer_info LIMIT 1")->fetch() ?: [];
+
+try {
+    $deliveryPeople = query("SELECT id, name FROM delivery_people ORDER BY name ASC")->fetchAll();
+} catch (Exception $e) {
+    error_log('Failed to load delivery_people: ' . $e->getMessage());
+    $deliveryPeople = [];
+}
+
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 ?>
@@ -363,6 +455,8 @@ unset($_SESSION['flash']);
                         <button class="nav-link active mb-2" id="branding-tab" data-bs-toggle="pill" data-bs-target="#branding-pane" type="button" role="tab">Branding</button>
                         <button class="nav-link mb-2" id="theme-tab" data-bs-toggle="pill" data-bs-target="#theme-pane" type="button" role="tab">Theme</button>
                         <button class="nav-link mb-2" id="footer-tab" data-bs-toggle="pill" data-bs-target="#footer-pane" type="button" role="tab">Footer</button>
+                        <button class="nav-link mb-2" id="templates-tab" data-bs-toggle="pill" data-bs-target="#templates-pane" type="button" role="tab">Message Templates</button>
+                        <button class="nav-link mb-2" id="delivery-people-tab" data-bs-toggle="pill" data-bs-target="#delivery-people-pane" type="button" role="tab">Delivery People</button>
                         <button class="nav-link mb-2" id="users-tab" data-bs-toggle="pill" data-bs-target="#users-pane" type="button" role="tab">User Management</button>
                         <button class="nav-link mb-2" id="import-export-tab" data-bs-toggle="pill" data-bs-target="#import-export-pane" type="button" role="tab">Import / Export</button>
                         <button class="nav-link" id="advanced-tab" data-bs-toggle="pill" data-bs-target="#advanced-pane" type="button" role="tab">Advanced</button>
@@ -502,6 +596,127 @@ unset($_SESSION['flash']);
 
                                 <button type="submit" name="footer_submit" class="btn btn-primary">Save Footer</button>
                             </form>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade" id="templates-pane" role="tabpanel">
+                    <div class="card app-card settings-card section-gap">
+                        <div class="card-header">WhatsApp Message Templates</div>
+                        <div class="card-body">
+                            <p class="settings-muted">Edit the messages sent via WhatsApp for new orders and deliveries. Use the placeholders below — they're replaced with real order values when the message is sent.</p>
+
+                            <div class="alert alert-light border mb-4" style="font-size:.9rem;">
+                                <div class="fw-semibold mb-2">Available placeholders</div>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <code>{invoice_no}</code>
+                                    <code>{phone}</code>
+                                    <code>{address}</code>
+                                    <code>{details}</code>
+                                    <code>{price}</code>
+                                    <code>{delivered_by}</code>
+                                    <code>{date}</code>
+                                    <code>{username}</code>
+                                </div>
+                                <div class="settings-muted mt-2">Unrecognized placeholders are left as-is. <code>{delivered_by}</code> only fills in for the delivered flow.</div>
+                            </div>
+
+                            <form method="POST">
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+
+                                <div class="mb-4">
+                                    <label class="form-label fw-semibold">Order Confirmation (sent when placing an order)</label>
+                                    <textarea name="template_place_order" rows="10" class="form-control" dir="auto" style="font-family: inherit;"><?php echo htmlspecialchars($settings['template_place_order'] ?? defaultMessageTemplate('template_place_order')); ?></textarea>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Delivered Notification (sent when marking delivered)</label>
+                                    <textarea name="template_delivered" rows="10" class="form-control" dir="auto" style="font-family: inherit;"><?php echo htmlspecialchars($settings['template_delivered'] ?? defaultMessageTemplate('template_delivered')); ?></textarea>
+                                </div>
+
+                                <div class="d-flex gap-2">
+                                    <button type="submit" name="templates_submit" class="btn btn-primary">Save Templates</button>
+                                    <button type="button" id="resetPlaceOrderTpl" class="btn btn-outline-secondary btn-sm">Reset Order Confirmation to default</button>
+                                    <button type="button" id="resetDeliveredTpl" class="btn btn-outline-secondary btn-sm">Reset Delivered to default</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade" id="delivery-people-pane" role="tabpanel">
+                    <div class="card app-card settings-card section-gap">
+                        <div class="card-header">Delivery People</div>
+                        <div class="card-body">
+                            <p class="settings-muted">Manage the list of delivery people shown in the <strong>Mark as Delivered</strong> picker on the Orders page. Renaming someone updates all of their historical orders too.</p>
+
+                            <form method="POST" class="row g-2 align-items-end mb-4">
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+
+                                <div class="col-sm-8">
+                                    <label class="form-label">Add new delivery person</label>
+                                    <input type="text" name="dp_name" class="form-control" placeholder="Full name" maxlength="100" required>
+                                </div>
+
+                                <div class="col-sm-4 d-grid">
+                                    <button type="submit" name="add_delivery_person" class="btn btn-primary">Add</button>
+                                </div>
+                            </form>
+
+                            <div class="app-table-wrap">
+                                <div class="table-responsive">
+                                    <table class="table app-table align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 70px;">ID</th>
+                                                <th>Name</th>
+                                                <th style="min-width: 220px; width: 240px;" class="text-end">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php if (count($deliveryPeople) === 0): ?>
+                                                <tr>
+                                                    <td colspan="3">
+                                                        <div class="empty-state text-center my-3">
+                                                            <div class="empty-state-title">No delivery people yet</div>
+                                                            <div class="settings-muted">Add your first delivery person above so they show up in the Mark as Delivered picker.</div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            <?php else: ?>
+                                                <?php foreach ($deliveryPeople as $person): ?>
+                                                    <tr>
+                                                        <td class="text-muted"><?php echo (int)$person['id']; ?></td>
+                                                        <td>
+                                                            <form method="POST" class="d-flex gap-2 align-items-center dp-rename-form">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                                                <input type="hidden" name="dp_id" value="<?php echo (int)$person['id']; ?>">
+                                                                <input
+                                                                    type="text"
+                                                                    name="dp_name"
+                                                                    class="form-control form-control-sm dp-name-input"
+                                                                    value="<?php echo htmlspecialchars($person['name']); ?>"
+                                                                    data-original="<?php echo htmlspecialchars($person['name']); ?>"
+                                                                    maxlength="100"
+                                                                    required
+                                                                >
+                                                                <button type="submit" name="rename_delivery_person" class="btn btn-sm btn-primary dp-save-btn" disabled>Save</button>
+                                                            </form>
+                                                        </td>
+                                                        <td class="text-end">
+                                                            <form method="POST" class="d-inline dp-delete-form" data-name="<?php echo htmlspecialchars($person['name']); ?>">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                                                <input type="hidden" name="dp_id" value="<?php echo (int)$person['id']; ?>">
+                                                                <button type="submit" name="delete_delivery_person" class="btn btn-sm btn-outline-danger">Remove</button>
+                                                            </form>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            <?php endif; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -662,6 +877,52 @@ unset($_SESSION['flash']);
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const defaultPlaceOrder = <?php echo json_encode(defaultMessageTemplate('template_place_order')); ?>;
+    const defaultDelivered = <?php echo json_encode(defaultMessageTemplate('template_delivered')); ?>;
+
+    const btnResetPo = document.getElementById('resetPlaceOrderTpl');
+    if (btnResetPo) {
+        btnResetPo.addEventListener('click', function() {
+            const ta = document.querySelector('textarea[name="template_place_order"]');
+            if (ta && confirm('Reset Order Confirmation template to the default?')) ta.value = defaultPlaceOrder;
+        });
+    }
+
+    const btnResetDel = document.getElementById('resetDeliveredTpl');
+    if (btnResetDel) {
+        btnResetDel.addEventListener('click', function() {
+            const ta = document.querySelector('textarea[name="template_delivered"]');
+            if (ta && confirm('Reset Delivered template to the default?')) ta.value = defaultDelivered;
+        });
+    }
+
+    if (window.location.hash) {
+        const targetSel = 'button[data-bs-target="' + window.location.hash + '"]';
+        const tabBtn = document.querySelector(targetSel);
+        if (tabBtn) tabBtn.click();
+    }
+
+    // Delivery People: enable Save only when the name changed
+    document.querySelectorAll('.dp-rename-form').forEach(function(form) {
+        const input = form.querySelector('.dp-name-input');
+        const saveBtn = form.querySelector('.dp-save-btn');
+        if (!input || !saveBtn) return;
+        input.addEventListener('input', function() {
+            const dirty = input.value.trim() !== input.dataset.original && input.value.trim() !== '';
+            saveBtn.disabled = !dirty;
+        });
+    });
+
+    // Delivery People: confirm before deleting
+    document.querySelectorAll('.dp-delete-form').forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            const name = form.dataset.name || 'this delivery person';
+            if (!confirm('Remove "' + name + '" from the delivery people list?\n\nHistorical orders that show their name will keep showing it.')) {
+                e.preventDefault();
+            }
+        });
+    });
+
     const logoInput = document.querySelector('input[name="logo"]');
     if (!logoInput) return;
 
