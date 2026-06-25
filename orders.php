@@ -393,57 +393,17 @@ if (!in_array($initialSearchType, ['invoice_no', 'phone', 'address'], true)) {
         </div>
     </div>
 
-    <!-- Mark as Delivered Modal -->
-    <div class="modal fade" id="markAsDeliveredModal" tabindex="-1" aria-labelledby="markAsDeliveredModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <form id="markAsDeliveredForm" method="POST" action="mark_as_delivered.php">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="markAsDeliveredModalLabel">Mark as Delivered</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-
-                    <div class="modal-body">
-                        <input type="hidden" name="order_id" id="orderIdInput">
-
-                        <div class="mb-3">
-                            <label for="deliveredBySelect" class="form-label">Delivered By</label>
-                            <select name="delivered_by" id="deliveredBySelect" class="form-select" required>
-                                <option value="" selected disabled>Select Delivery Person</option>
-                                <?php foreach ($deliveryPeople as $person): ?>
-                                    <option value="<?php echo htmlspecialchars($person['name']); ?>">
-                                        <?php echo htmlspecialchars($person['name']); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-
-                        <div class="mb-1">
-                            <label class="form-label">WhatsApp Message</label>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="template_key" id="tplDelivered" value="template_delivered" checked>
-                                <label class="form-check-label" for="tplDelivered">Delivered notification</label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="template_key" id="tplPlaceOrder" value="template_place_order">
-                                <label class="form-check-label" for="tplPlaceOrder">Order confirmation</label>
-                            </div>
-                            <div class="form-text">Order is marked delivered either way. <a href="settings.php#templates-pane" target="_blank">Edit templates</a>.</div>
-                        </div>
-                    </div>
-
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-success" id="markDeliveredBtn">Mark Delivered &amp; Send</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
     <!-- Sticky bulk action bar -->
     <div id="bulkBar" class="bulk-bar" role="region" aria-label="Bulk actions" aria-hidden="true">
         <span class="bulk-count"><span id="bulkCount">0</span> selected</span>
+        <select id="bulkCourier" class="form-select form-select-sm" style="min-width: 160px;" aria-label="Courier for batch">
+            <option value="">— Courier —</option>
+            <?php foreach ($deliveryPeople as $person): ?>
+                <option value="<?php echo htmlspecialchars($person['name']); ?>">
+                    <?php echo htmlspecialchars($person['name']); ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
         <div class="form-check">
             <input class="form-check-input" type="checkbox" id="bulkSendWhatsapp">
             <label class="form-check-label" for="bulkSendWhatsapp">Also open WhatsApp</label>
@@ -560,33 +520,29 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-$(document).on("click", ".markAsDeliveredBtn", function() {
-    const orderId = $(this).data("order-id");
-    $("#orderIdInput").val(orderId);
-    $("#deliveredBySelect").val('');
-    $("#tplDelivered").prop("checked", true);
-    $("#markAsDeliveredModal").modal("show");
-});
+// Pick a courier from the row dropdown → mark delivered + open WhatsApp delivered message
+$(document).on("click", ".deliverByItem", function(e) {
+    e.preventDefault();
+    const item = $(this);
+    const orderId = item.data("order-id");
+    const deliveredBy = item.data("delivered-by");
+    if (!deliveredBy) return;
 
-// One-click delivery for assigned orders
-$(document).on("click", ".quickDeliverBtn", function() {
-    const btn = $(this);
-    const orderId = btn.data("order-id");
-    const assignedTo = btn.data("assigned-to");
-    if (!confirm(`Mark this order delivered by ${assignedTo}?`)) return;
-
-    UI.setButtonLoading(btn[0], true, 'Marking…');
     $.ajax({
         url: "mark_as_delivered.php",
         type: "POST",
-        data: { order_id: orderId, use_assignment: 1, template_key: 'template_delivered' },
+        data: {
+            order_id: orderId,
+            delivered_by: deliveredBy,
+            template_key: 'template_delivered'
+        },
         headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" },
         success: function(response) {
             let result = response;
             if (typeof response === "string") { try { result = JSON.parse(response); } catch (e) {} }
             if (result && result.success) {
-                UI.showToast(result.message || 'Marked delivered.', "success");
-                if (confirm('Open WhatsApp to send the delivered message now?') && result.whatsapp_url) {
+                UI.showToast(`Delivered by ${deliveredBy}.`, "success");
+                if (result.whatsapp_url) {
                     window.open(result.whatsapp_url, "_blank");
                 }
                 const search = document.getElementById("searchValue").value.trim();
@@ -597,38 +553,6 @@ $(document).on("click", ".quickDeliverBtn", function() {
         },
         error: function(xhr) {
             let msg = "Failed to mark delivered.";
-            try { const r = JSON.parse(xhr.responseText); if (r.message) msg = r.message; } catch (e) {}
-            UI.showToast(msg, "danger");
-        },
-        complete: function() {
-            UI.setButtonLoading(btn[0], false);
-        }
-    });
-});
-
-// Assign / reassign / clear assignment from the row dropdown
-$(document).on("click", ".assignOrderItem", function(e) {
-    e.preventDefault();
-    const item = $(this);
-    const orderId = item.data("order-id");
-    const assignTo = item.data("assign-to") || '';
-    $.ajax({
-        url: "assign_order.php",
-        type: "POST",
-        data: { order_id: orderId, assigned_to: assignTo },
-        success: function(response) {
-            let result = response;
-            if (typeof response === "string") { try { result = JSON.parse(response); } catch (e) {} }
-            if (result && result.success) {
-                UI.showToast(result.message || 'Assignment updated.', "success");
-                const search = document.getElementById("searchValue").value.trim();
-                if (search !== "") loadOrders();
-            } else {
-                UI.showToast((result && result.message) || "Failed to update assignment.", "danger");
-            }
-        },
-        error: function(xhr) {
-            let msg = "Failed to update assignment.";
             try { const r = JSON.parse(xhr.responseText); if (r.message) msg = r.message; } catch (e) {}
             UI.showToast(msg, "danger");
         }
@@ -688,10 +612,16 @@ document.getElementById('bulkClearBtn').addEventListener('click', function() {
 document.getElementById('bulkMarkBtn').addEventListener('click', function() {
     const ids = getSelectedRowIds();
     if (ids.length === 0) return;
+    const courier = document.getElementById('bulkCourier').value;
+    if (!courier) {
+        UI.showToast('Pick a courier for the batch first.', 'warning');
+        document.getElementById('bulkCourier').focus();
+        return;
+    }
     const sendMsgs = document.getElementById('bulkSendWhatsapp').checked;
     const msg = sendMsgs
-        ? `Mark ${ids.length} orders delivered AND open WhatsApp for each? This will open ${ids.length} browser tabs.`
-        : `Mark ${ids.length} orders delivered?`;
+        ? `Mark ${ids.length} orders delivered by ${courier} AND open WhatsApp for each? This will open ${ids.length} browser tabs.`
+        : `Mark ${ids.length} orders delivered by ${courier}?`;
     if (!confirm(msg)) return;
 
     const btn = this;
@@ -702,6 +632,7 @@ document.getElementById('bulkMarkBtn').addEventListener('click', function() {
         traditional: true,
         data: {
             'order_ids[]': ids,
+            delivered_by: courier,
             send_messages: sendMsgs ? 1 : 0,
             template_key: 'template_delivered'
         },
@@ -825,55 +756,6 @@ $("#editOrderForm").on("submit", function(event) {
     });
 });
 
-$("#markAsDeliveredForm").on("submit", function(event) {
-    event.preventDefault();
-
-    const btn = document.getElementById("markDeliveredBtn");
-    AppUI.setButtonLoading(btn, true, "Updating...");
-
-    $.ajax({
-        url: "mark_as_delivered.php",
-        type: "POST",
-        data: $(this).serialize(),
-        headers: {
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json"
-        },
-        success: function(response) {
-            let result = response;
-            if (typeof response === "string") {
-                result = JSON.parse(response);
-            }
-
-            if (result.success) {
-                $("#markAsDeliveredModal").modal("hide");
-                AppUI.showToast(result.message || "Order marked as delivered successfully.", "success");
-
-                if (result.whatsapp_url) {
-                    window.open(result.whatsapp_url, "_blank");
-                }
-
-                const currentSearch = document.getElementById("searchValue").value.trim();
-                if (currentSearch !== "") {
-                    loadOrders();
-                }
-            } else {
-                AppUI.showToast(result.message || "Failed to update order.", "danger");
-            }
-        },
-        error: function(xhr) {
-            let msg = "Failed to mark order as delivered.";
-            try {
-                const res = JSON.parse(xhr.responseText);
-                if (res.message) msg = res.message;
-            } catch (e) {}
-            AppUI.showToast(msg, "danger");
-        },
-        complete: function() {
-            AppUI.setButtonLoading(btn, false);
-        }
-    });
-});
 </script>
 
 <?php include 'footer.php'; ?>

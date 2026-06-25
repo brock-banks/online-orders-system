@@ -107,13 +107,13 @@ function renderOrderRow($order, $templates = [], $deliveryPeople = []) {
         ? '<span class="badge-status badge-delivered">' . $deliveredIcon . 'Delivered</span>'
         : '<span class="badge-status badge-pending">' . $pendingIcon . 'Pending</span>';
 
-    // Assigned-courier indicator (only for pending; delivered shows the actual delivered_by row data instead)
+    // Courier line: only shown for delivered rows now (pending rows show the picker action instead)
     $assignmentLine = '';
-    if ($status !== 'delivered') {
-        if ($assignedTo !== '') {
-            $assignmentLine = "<div class='assigned-line text-muted small mt-1' title='Assigned courier'>{$userIcon}<span>{$assignedToEsc}</span></div>";
-        } else {
-            $assignmentLine = "<div class='assigned-line assigned-empty text-muted small mt-1'>{$userIcon}<span>Unassigned</span></div>";
+    if ($status === 'delivered') {
+        $deliveredBy = trim((string)($order['delivered_by'] ?? ''));
+        if ($deliveredBy !== '') {
+            $deliveredByEsc = htmlspecialchars($deliveredBy);
+            $assignmentLine = "<div class='assigned-line text-muted small mt-1' title='Delivered by'>{$userIcon}<span>by {$deliveredByEsc}</span></div>";
         }
     }
 
@@ -136,11 +136,11 @@ function renderOrderRow($order, $templates = [], $deliveryPeople = []) {
     $deliveredUrl  = "https://api.whatsapp.com/send?phone={$phoneForWhatsapp}&text=" . rawurlencode($deliveredText);
     $placeOrderUrl = "https://api.whatsapp.com/send?phone={$phoneForWhatsapp}&text=" . rawurlencode($placeOrderText);
 
-    // Bulk-select checkbox (only enabled for pending + assigned rows; the bulk button mirrors this rule)
-    $bulkEligible = $status !== 'delivered' && $assignedTo !== '';
+    // Bulk-select checkbox — any pending row is eligible
+    $bulkEligible = $status !== 'delivered';
     $bulkCheckbox = $bulkEligible
-        ? "<input type='checkbox' class='form-check-input row-select' value='{$id}' data-assigned='{$assignedToEsc}' aria-label='Select order {$invoiceNo} for bulk action'>"
-        : "<input type='checkbox' class='form-check-input row-select' disabled aria-label='Cannot bulk-select' title='" . ($status === 'delivered' ? 'Already delivered' : 'Assign a courier first to enable bulk select') . "'>";
+        ? "<input type='checkbox' class='form-check-input row-select' value='{$id}' aria-label='Select order {$invoiceNo} for bulk action'>"
+        : "<input type='checkbox' class='form-check-input row-select' disabled aria-label='Cannot bulk-select' title='Already delivered'>";
 
     $row = "<tr data-order-id='{$id}'>
         <td class='select-cell'>{$bulkCheckbox}</td>
@@ -159,46 +159,23 @@ function renderOrderRow($order, $templates = [], $deliveryPeople = []) {
                 </button>";
 
     if ($status !== 'delivered') {
-        // Assign dropdown — lists couriers + "clear"
-        $assignBtnLabel = $assignedTo !== '' ? "Reassign" : "Assign";
-        $assignMenu = "<li><h6 class='dropdown-header'>Assign to courier</h6></li>";
+        // "Mark Delivered ▾" — picking a courier marks delivered + sends delivered WhatsApp message
+        $deliverMenu = "<li><h6 class='dropdown-header'>Mark delivered by</h6></li>";
         if (count($deliveryPeople) === 0) {
-            $assignMenu .= "<li><span class='dropdown-item-text text-muted small'>No delivery people configured.<br><a href='settings.php#delivery-people-pane'>Add some</a>.</span></li>";
+            $deliverMenu .= "<li><span class='dropdown-item-text text-muted small'>No delivery people configured.<br><a href='settings.php#delivery-people-pane'>Add some</a>.</span></li>";
         } else {
             foreach ($deliveryPeople as $dpName) {
-                $isCurrent = ($assignedTo !== '' && $dpName === $assignedTo);
-                $check = $isCurrent ? '✓ ' : '';
-                $row_safe = htmlspecialchars($dpName);
-                $assignMenu .= "<li><a class='dropdown-item assignOrderItem' href='#' data-order-id='{$id}' data-assign-to='{$row_safe}'>{$check}{$row_safe}</a></li>";
-            }
-            if ($assignedTo !== '') {
-                $assignMenu .= "<li><hr class='dropdown-divider'></li>";
-                $assignMenu .= "<li><a class='dropdown-item text-danger assignOrderItem' href='#' data-order-id='{$id}' data-assign-to=''>Clear assignment</a></li>";
+                $dpNameEsc = htmlspecialchars($dpName);
+                $deliverMenu .= "<li><a class='dropdown-item deliverByItem' href='#' data-order-id='{$id}' data-delivered-by='{$dpNameEsc}'>{$dpNameEsc}</a></li>";
             }
         }
 
         $row .= "<div class='btn-group'>
-                    <button type='button' class='btn btn-sm btn-outline-primary dropdown-toggle' data-bs-toggle='dropdown' aria-expanded='false'>
-                        {$assignBtnLabel}
+                    <button type='button' class='btn btn-sm btn-success dropdown-toggle' data-bs-toggle='dropdown' aria-expanded='false'>
+                        Mark Delivered
                     </button>
-                    <ul class='dropdown-menu'>{$assignMenu}</ul>
+                    <ul class='dropdown-menu'>{$deliverMenu}</ul>
                 </div>";
-
-        // Smart Mark Delivered button
-        if ($assignedTo !== '') {
-            // One-click flow: skip modal
-            $row .= "<button class='btn btn-sm btn-success quickDeliverBtn'
-                          data-order-id='{$id}'
-                          data-assigned-to='{$assignedToEsc}'
-                          title='Mark delivered by {$assignedToEsc} (one click)'>
-                    Mark Delivered
-                  </button>";
-        } else {
-            $row .= "<button class='btn btn-sm btn-outline-success markAsDeliveredBtn'
-                          data-order-id='{$id}'>
-                    Mark Delivered…
-                  </button>";
-        }
     } else {
         $row .= "<button class='btn btn-sm btn-light' disabled>
                 Delivered

@@ -99,17 +99,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
             }
 
-            if ($hasAssignedCol) {
-                query(
-                    "INSERT INTO orders (user_id, details, invoice_no, phone, address, price, assigned_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [$selectedUserId, $details, $invoiceNo, $phone, $address, $price, $assignedTo !== '' ? $assignedTo : null]
-                );
-            } else {
-                query(
-                    "INSERT INTO orders (user_id, details, invoice_no, phone, address, price) VALUES (?, ?, ?, ?, ?, ?)",
-                    [$selectedUserId, $details, $invoiceNo, $phone, $address, $price]
-                );
-            }
+            // If a courier was picked, the order is being handed off at placement time:
+            // mark it delivered and record the courier in delivered_by. The receipt popup
+            // will use the delivered WhatsApp template instead of the order-confirmation one.
+            $startsDelivered = ($assignedTo !== '');
+
+            query(
+                "INSERT INTO orders (user_id, details, invoice_no, phone, address, price, delivered_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    $selectedUserId,
+                    $details,
+                    $invoiceNo,
+                    $phone,
+                    $address,
+                    $price,
+                    $startsDelivered ? $assignedTo : null,
+                    $startsDelivered ? 'delivered' : 'pending',
+                ]
+            );
 
             $orderId = null;
             if (isset($pdo) && $pdo instanceof PDO) {
@@ -153,14 +160,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $showReceipt = true;
 
-                $template = getMessageTemplate('template_place_order');
+                $templateKey = $startsDelivered ? 'template_delivered' : 'template_place_order';
+                $template = getMessageTemplate($templateKey);
                 $message = renderMessageTemplate($template, [
                     'invoice_no'   => $invoiceNo,
                     'phone'        => $phone,
                     'address'      => $address,
                     'details'      => $details,
                     'price'        => $price,
-                    'delivered_by' => '',
+                    'delivered_by' => $startsDelivered ? $assignedTo : '',
                     'date'         => $receiptOrder['date'] ?? '',
                     'username'     => $receiptUser['username'] ?? '',
                 ]);
@@ -322,9 +330,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label" for="assigned_to">Assign to courier <span class="text-muted small">(optional)</span></label>
+                            <label class="form-label" for="assigned_to">Delivered by <span class="text-muted small">(if already handed off)</span></label>
                             <select id="assigned_to" name="assigned_to" class="form-select">
-                                <option value="">— Unassigned —</option>
+                                <option value="">— Not yet delivered —</option>
                                 <?php foreach ($deliveryPeople as $dp): ?>
                                     <option value="<?php echo htmlspecialchars($dp['name']); ?>"
                                         <?php echo (isset($assignedTo) && $assignedTo === $dp['name']) ? 'selected' : ''; ?>>
@@ -332,7 +340,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     </option>
                                 <?php endforeach; ?>
                             </select>
-                            <div class="form-text">Pre-assigning lets you mark this order delivered in one click later.</div>
+                            <div class="form-text">Picking a courier marks this order delivered immediately and sends the delivered WhatsApp message instead of the order-confirmation one.</div>
                         </div>
 
                         <button type="submit" id="placeOrderSubmitBtn" class="btn btn-primary btn-lg w-100">Place Order</button>
@@ -587,9 +595,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const form = document.getElementById('placeOrderForm');
     const submitBtn = document.getElementById('placeOrderSubmitBtn');
+    let submitting = false;
 
-    form.addEventListener('submit', function() {
-        AppUI.setButtonLoading(submitBtn, true, 'Placing Order...');
+    form.addEventListener('submit', function(e) {
+        if (submitting) {
+            e.preventDefault();
+            return;
+        }
+        submitting = true;
+        submitBtn.disabled = true;
+        submitBtn.dataset.originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = 'Placing Order…';
     });
 });
 </script>

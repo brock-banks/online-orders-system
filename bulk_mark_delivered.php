@@ -18,9 +18,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 ensureAssignedToColumn();
 
-$rawIds      = $_POST['order_ids'] ?? [];
-$sendMessages = !empty($_POST['send_messages']);
-$templateKey = (string)($_POST['template_key'] ?? 'template_delivered');
+$rawIds         = $_POST['order_ids'] ?? [];
+$sendMessages   = !empty($_POST['send_messages']);
+$deliveredBy    = trim((string)($_POST['delivered_by'] ?? ''));
+$templateKey    = (string)($_POST['template_key'] ?? 'template_delivered');
 if (!in_array($templateKey, ['template_place_order', 'template_delivered'], true)) {
     $templateKey = 'template_delivered';
 }
@@ -34,6 +35,19 @@ $orderIds = array_values(array_unique(array_filter(array_map('intval', $rawIds),
 if (count($orderIds) === 0) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'No orders selected.']);
+    exit;
+}
+
+if ($deliveredBy === '') {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Please pick a courier for the batch.']);
+    exit;
+}
+
+$courierExists = query("SELECT 1 FROM delivery_people WHERE name = ? LIMIT 1", [$deliveredBy])->fetch();
+if (!$courierExists) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => "'{$deliveredBy}' is not in the delivery people list."]);
     exit;
 }
 
@@ -64,12 +78,6 @@ try {
         $status    = strtolower(trim((string)($order['status'] ?? '')));
         if ($status === 'delivered') {
             $skipped[] = ['id' => $id, 'invoice_no' => $invoiceNo, 'reason' => 'Already delivered.'];
-            continue;
-        }
-
-        $deliveredBy = trim((string)($order['assigned_to'] ?? ''));
-        if ($deliveredBy === '') {
-            $skipped[] = ['id' => $id, 'invoice_no' => $invoiceNo, 'reason' => 'No assigned courier.'];
             continue;
         }
 
