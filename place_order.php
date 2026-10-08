@@ -717,7 +717,7 @@ document.addEventListener('DOMContentLoaded', function () {
             <style>
               @page { size: 101.6mm 101.6mm; margin: 4mm; }
               html, body { margin:0; padding:0; background:#fff; color:#000; -webkit-print-color-adjust:exact; }
-              body { font-family: Arial, Helvetica, sans-serif; font-size:10px; line-height:1.2; }
+              body { font-family: Arial, Helvetica, sans-serif; font-size:12px; line-height:1.2; }
               .label-frame {
                 width: calc(101.6mm - 8mm);
                 height: calc(101.6mm - 8mm);
@@ -729,27 +729,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 flex-direction:column;
                 justify-content:flex-start;
               }
-              .logo-area { text-align:center; margin-bottom:3mm; }
-              .logo-area img { max-height: 16mm; width:auto; }
-              .logo-text { font-weight:700; font-size:13px; }
-              .from-to { display:flex; justify-content:space-between; gap:3mm; font-size:9px; }
+              .logo-area { text-align:center; margin-bottom:2mm; }
+              .logo-area img { max-height: 12mm; width:auto; }
+              .logo-text { font-weight:700; font-size:16px; }
+              .from-to { display:flex; justify-content:space-between; gap:3mm; font-size:12px; }
               .from, .to { flex:1; border-top:1px solid #000; padding-top:1.2mm; }
               .from-title, .to-title { font-weight:700; margin-bottom:0.8mm; }
+        .to { font-size:13px; font-weight:600; }
               .mid-sep { border-top:1px solid #000; margin:2mm 0 1.5mm; }
-              .middle-title { text-align:center; font-weight:700; font-size:12px; margin-bottom:2mm; }
+              .middle-title { text-align:center; font-weight:700; font-size:15px; margin-bottom:2mm; }
               .mid-band { display:flex; flex:1; align-items:flex-start; gap:3mm; }
-              .fragile-block { width: 22mm; border:1px solid #000; box-sizing:border-box; padding:1.5mm 1mm; text-align:center; font-size:9px; }
+              .fragile-block { width: 22mm; border:1px solid #000; box-sizing:border-box; padding:1.5mm 1mm; text-align:center; font-size:11px; }
               .fragile-block .label { font-weight:700; margin-bottom:1mm; }
               .fragile-block img { max-width: 16mm; max-height: 16mm; }
               .code-bar-block { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:1.5mm; }
-              .human-code { font-size:9px; letter-spacing:1px; }
+              .human-code { font-size:12px; letter-spacing:1px; }
               .barcode { width:100%; height:16mm; display:flex; align-items:flex-end; justify-content:center; overflow:hidden; }
               .barcode-inner { width:80%; height:100%; display:flex; align-items:flex-end; }
               .barcode-bar { background:#000; margin-right:1px; }
               .qr-block { width:22mm; text-align:center; }
               .qr-block img { max-width:22mm; max-height:22mm; }
-              .bottom-row { margin-top:2mm; border-top:1px solid #000; padding-top:1.5mm; display:flex; justify-content:space-between; font-size:9px; }
-              .order-id { font-weight:700; }
+              .bottom-row { margin-top:2mm; border-top:1px solid #000; padding-top:1.5mm; display:flex; justify-content:space-between; font-size:12px; }
+              .order-id { font-weight:700; font-size:13px; }
               .instr-title { font-weight:700; margin-bottom:0.5mm; }
             </style>
             `;
