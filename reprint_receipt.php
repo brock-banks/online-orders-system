@@ -289,11 +289,6 @@ if (isset($_GET['action'])) {
     const date    = esc(order.date || '');
     const username = esc(order.username || '');
 
-    const qrText = encodeURIComponent(
-      `Invoice: ${order.invoice_no}\nUser: ${order.username || ''}\nPhone: ${order.phone}\nAddress: ${order.address}\nPrice: ${parseFloat(order.price || 0).toFixed(2)}\nDetails:\n${order.details || ''}\nDate: ${order.date}`
-    );
-    const qrUrlRemote = "https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=" + qrText;
-
     const hasLogo = <?php echo json_encode(!empty($headerLogo)); ?>;
     const logoUrl = <?php echo json_encode($headerLogo ?? ''); ?>;
 
@@ -319,7 +314,7 @@ if (isset($_GET['action'])) {
         </table>
 
         <div class="text-center mt-2">
-          <img src="${qrUrlRemote}" alt="QR" style="max-width:120px;" class="img-fluid mb-1 receipt-qr">
+          <img alt="QR" style="max-width:120px;" class="img-fluid mb-1 receipt-qr">
           <div class="small text-muted">Scan for order details</div>
         </div>
       </div>
@@ -339,6 +334,13 @@ if (isset($_GET['action'])) {
       }
       const order = json.order;
       body.innerHTML = buildReceiptHtml(order);
+
+      const qrImg = body.querySelector('.receipt-qr');
+      if (qrImg) {
+        generateQRDataURL(buildQrText(order), 260)
+          .then(url => { qrImg.src = url; })
+          .catch(err => console.warn('QR preview failed', err));
+      }
 
       const waBtn = document.getElementById('modalWhatsappLink');
       const waMsg = encodeURIComponent(`Order #${order.invoice_no}\nAddress: ${order.address}\nDetails:\n${order.details || ''}`);
@@ -382,7 +384,7 @@ if (isset($_GET['action'])) {
     return new Promise((resolve, reject) => {
       if (window.QRious) return resolve(window.QRious);
       const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js';
+      s.src = 'assets/js/qrious.min.js';
       s.async = true;
       s.onload = () => resolve(window.QRious);
       s.onerror = () => reject(new Error('Failed to load QRious'));
@@ -391,13 +393,21 @@ if (isset($_GET['action'])) {
   }
 
   async function generateQRDataURL(text, size = 500) {
-    try {
-      const QRious = await loadQRious();
-      const qr = new QRious({ value: text, size: size });
-      return qr.toDataURL('image/png');
-    } catch (e) {
-      return 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encodeURIComponent(text);
-    }
+    const QRious = await loadQRious();
+    // QRious only encodes single-byte chars, so pass the text as UTF-8 bytes
+    const qr = new QRious({ value: unescape(encodeURIComponent(text)), size: size });
+    return qr.toDataURL('image/png');
+  }
+
+  function buildQrText(order) {
+    return `Invoice: ${order.invoice_no}
+User: ${order.username || ''}
+Phone: ${order.phone}
+Address: ${order.address}
+Price: ${parseFloat(order.price || 0).toFixed(2)}
+Details:
+${order.details || ''}
+Date: ${order.date}`;
   }
 
   function waitForImages(context, timeout = 3000) {
@@ -613,16 +623,7 @@ if (isset($_GET['action'])) {
   }
 
   async function printLabelForOrder(order) {
-    const qrText = `Invoice: ${order.invoice_no}
-User: ${order.username || ''}
-Phone: ${order.phone}
-Address: ${order.address}
-Price: ${parseFloat(order.price || 0).toFixed(2)}
-Details:
-${order.details || ''}
-Date: ${order.date}`;
-
-    const qrDataUrl = await generateQRDataURL(qrText, 500);
+    const qrDataUrl = await generateQRDataURL(buildQrText(order), 500);
     const html = buildLabelHtmlFromOrder(order, qrDataUrl);
 
     const popup = window.open('', '_blank', 'toolbar=0,location=0,menubar=0,width=700,height=900');

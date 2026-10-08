@@ -388,7 +388,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </table>
 
                             <div class="text-center">
-                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=<?php echo urlencode($qrTextRaw); ?>" alt="QR" style="max-width:120px;">
+                                <img id="receiptQrImg" alt="QR" style="max-width:120px;">
                                 <div class="small text-muted mt-1">Scan QR for full details</div>
                             </div>
                         </div>
@@ -642,7 +642,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return new Promise((resolve, reject) => {
                 if (window.QRious) return resolve(window.QRious);
                 const s = document.createElement('script');
-                s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js';
+                s.src = 'assets/js/qrious.min.js';
                 s.async = true;
                 s.onload = () => resolve(window.QRious);
                 s.onerror = () => reject(new Error('Failed to load QRious library'));
@@ -651,13 +651,17 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         async function generateQRDataURL(text, size = 500) {
-            try {
-                const QRious = await loadQRious();
-                const qr = new QRious({ value: text, size: size });
-                return qr.toDataURL('image/png');
-            } catch (e) {
-                return 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encodeURIComponent(text);
-            }
+            const QRious = await loadQRious();
+            // QRious only encodes single-byte chars, so pass the text as UTF-8 bytes
+            const qr = new QRious({ value: unescape(encodeURIComponent(text)), size: size });
+            return qr.toDataURL('image/png');
+        }
+
+        const receiptQrImg = document.getElementById('receiptQrImg');
+        if (receiptQrImg) {
+            generateQRDataURL(qrTextPHP, 220)
+                .then(url => { receiptQrImg.src = url; })
+                .catch(err => console.warn('QR preview failed', err));
         }
 
         function waitForImages(context, timeout = 3000) {

@@ -12,7 +12,7 @@ if (showReceipt) {
       return new Promise((resolve, reject) => {
         if (window.QRious) return resolve(window.QRious);
         const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js';
+        s.src = 'assets/js/qrious.min.js';
         s.async = true;
         s.onload = () => resolve(window.QRious);
         s.onerror = () => reject(new Error('Failed to load QRious'));
@@ -21,14 +21,9 @@ if (showReceipt) {
     }
 
     async function generateQRDataURL(text, size = 600) {
-      try {
-        const QRious = await loadQRious();
-        const qr = new QRious({ value: text, size: size });
-        return qr.toDataURL('image/png');
-      } catch (e) {
-        // fallback
-        return 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encodeURIComponent(text);
-      }
+      const QRious = await loadQRious();
+      const qr = new QRious({ value: unescape(encodeURIComponent(text)), size: size });
+      return qr.toDataURL('image/png');
     }
 
     function waitForImages(context, timeout = 3000) {
